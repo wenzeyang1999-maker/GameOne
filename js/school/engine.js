@@ -209,6 +209,7 @@ class Game {
     this.fade = 0; this.fading = null;
     this.saveAcc = 0;
     this.bag = []; this.taken = new Set();       // 书包里的东西 / 已经捡过的
+    this.declined = new Set();                   // 刚选过「放弃」的东西，走开之前不再问
     this.flags = new Set();                      // 剧情进度（'拿到撬棍' 等），存档带走
     this.monsters = []; this.fx = []; this.trail = []; this.swing = null; this.shake = 0;
     this.phase = 'day';                             // 时段：day 白天（没有怪）/ night 晚自习后（除教室外都锁）
@@ -241,7 +242,7 @@ class Game {
     this.bag = d.bag || []; this.taken = new Set(d.taken || []);
     this.flags = new Set(d.flags || []);
     // 读档回到序章：答应了却还没捡的话，钱包得重新放回草丛里
-    if (this.cur.id === 'prologue' && this.flags.has('答应帮忙') && !this.bag.includes('wallet')) {
+    if (this.cur.id === 'prologue' && this.flags.has('答应帮忙') && !this.taken.has('wallet')) {
       this.dropItem(WALLET[0], WALLET[1], walletItem(), spriteWallet());
     }
     this.playerName = d.name || CHARACTERS[0].name;
@@ -465,8 +466,23 @@ class Game {
     this.interactAt(tx, ty);
   }
 
-  // 捡起某一格的东西。捡到了返回 true
+  // 捡起某一格的东西。捡到了（或者弹出了「捡不捡」的询问）返回 true
   pickUp(tx, ty) {
+    const s = this.cur, it = s.items.get(tx + ',' + ty);
+    if (!it || this.taken.has(it.id)) return false;
+    // 标了 ask 的东西，先问一句，玩家自己选捡还是不捡
+    if (it.ask) {
+      this.say([{ name: '', text: it.text, choices: [
+        { label: T('选项.拾取'), onPick: g => g.takeItem(tx, ty, false) },
+        { label: T('选项.放弃'), onPick: g => g.declined.add(it.id) },
+      ] }]);
+      return true;
+    }
+    return this.takeItem(tx, ty, true);
+  }
+
+  // 真正把东西放进书包。showText = 要不要先念一遍 it.text（询问过的话就不用再念）
+  takeItem(tx, ty, showText = true) {
     const s = this.cur, key = tx + ',' + ty, it = s.items.get(key);
     if (!it || this.taken.has(it.id)) return false;
     this.taken.add(it.id); this.bag.push(it.id); ITEM_DB[it.id] = it;
@@ -477,19 +493,25 @@ class Game {
       if (i >= 0) s.props.splice(i, 1);
     }
     this.save();
-    this.say([{ name: '', text: it.text }, { name: '', text: `把「${it.name}」放进了书包。\n（按 I 可以看书包里的东西）` }]);
+    const got = { name: '', text: `把「${it.name}」放进了书包。\n（按 I 可以看书包里的东西）` };
+    this.say(showText ? [{ name: '', text: it.text }, got] : [got]);
     return true;
   }
 
   // 脚下和四周一圈的东西都能捡，不用正对着它
   pickUpNear(autoOnly = false) {
     const [px0, py0] = this.player.tile();
+    let touching = false;
     for (const [dx, dy] of [[0, 0], [0, -1], [0, 1], [-1, 0], [1, 0]]) {
       const it = this.cur.items.get((px0 + dx) + ',' + (py0 + dy));
       if (!it || this.taken.has(it.id)) continue;
       if (autoOnly && !it.auto) continue;        // 自动捡只捡标了 auto 的
+      touching = true;
+      // 刚选过「放弃」的，站在旁边不再反复问；走开再回来才会重新问
+      if (autoOnly && this.declined.has(it.id)) continue;
       return this.pickUp(px0 + dx, py0 + dy);
     }
+    if (!touching) this.declined.clear();
     return false;
   }
 

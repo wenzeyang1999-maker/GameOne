@@ -74,11 +74,11 @@ function spriteWallet() {
   return c;
 }
 
-// 钱包。auto: true —— 走到旁边就自动捡起来，不用按键
+// 钱包。auto: 走到旁边就触发，不用按键；ask: 先问一句「拾取 / 放弃」
 function walletItem() {
   return {
     id: 'wallet', name: T('item.钱包.名字'), desc: T('item.钱包.说明'),
-    text: T('item.钱包.捡起'), color: '#6a3a2a', auto: true,
+    text: T('item.钱包.捡起'), color: '#6a3a2a', auto: true, ask: true,
   };
 }
 
@@ -154,7 +154,9 @@ function buildPrologue() {
   d.hints = [
     { x: GRANNY[0], y: GRANNY[1], when: game => !game.flags.has('拿到撬棍') },
     { x: GATE[0], y: 2 },
-    { x: WALLET[0], y: WALLET[1], when: game => game.flags.has('答应帮忙') && !game.bag.includes('wallet') },
+    // 用 taken（捡过没有）而不是 bag（现在手里有没有）：
+    // 钱包还给老奶奶之后会从书包里消失，用 bag 判断的话箭头会重新冒出来
+    { x: WALLET[0], y: WALLET[1], when: game => game.flags.has('答应帮忙') && !game.taken.has('wallet') },
   ];
 
   d.npcs = [
