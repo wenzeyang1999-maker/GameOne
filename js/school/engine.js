@@ -140,6 +140,8 @@ class Scene {
     this.people = def.npcs.map(n => ({ ...n, p: new Person(n.look, n.x, n.y, n.dir), home: n.dir, wait: 1 + Math.random() * 3, target: null, talking: false }));
   }
   isSolid(x, y) { return x < 0 || y < 0 || x >= this.W || y >= this.H || !!this.solid[y * this.W + x]; }
+  // 开门、撬门之后要改碰撞，所以场景建好之后也得能改
+  setSolidAt(x, y, v) { this.solid[y * this.W + x] = v; }
   personAt(x, y) { return this.people.find(n => { const [tx, ty] = n.p.tile(); return tx === x && ty === y; }) || null; }
   // 寻路用：这一格是墙/家具，或者站在格子中间会碰到某个人（包括走到一半、身子跨在两格之间的 NPC）
   blocked(x, y, ignore) {
@@ -171,9 +173,9 @@ function sceneBuilder(W, H) {
 
 // 开场可选的六个角色。现在外观一样，之后可以各自给 look
 const CHARACTERS = [
-  { name: 'Miss Ren', look: {                       // 暗金色头发、吊带上衣、短裙
+  { name: 'Miss Ren', look: {                       // 暗金色长发、吊带上衣、短裙
     hair: '#b8903a', hairDark: '#8a6a24', cloth: '#aed4ee', clothDark: '#7fa9c9',
-    collar: '#aed4ee', pants: '#3a3448', shoes: '#5a4432', cami: true, skirt: true,
+    collar: '#aed4ee', pants: '#3a3448', shoes: '#5a4432', cami: true, skirt: true, longHair: true,
   } },
   { name: 'Jojo', look: {                           // 黑 T 恤 + 黑裤子
     hair: '#2e2420', hairDark: '#1a1412', cloth: '#2b2b33', clothDark: '#191920',
@@ -207,6 +209,7 @@ class Game {
     this.fade = 0; this.fading = null;
     this.saveAcc = 0;
     this.bag = []; this.taken = new Set();       // 书包里的东西 / 已经捡过的
+    this.flags = new Set();                      // 剧情进度（'拿到撬棍' 等），存档带走
     this.monsters = []; this.fx = []; this.trail = []; this.swing = null; this.shake = 0;
     this.phase = 'day';                             // 时段：day 白天（没有怪）/ night 晚自习后（除教室外都锁）
     this.run = 0;                                   // 这是第几局，通关判彩蛋要用
@@ -225,7 +228,7 @@ class Game {
     if (!this.cur) return;
     const p = this.player;
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ scene: this.cur.id, x: p.x, y: p.y, dir: p.dir, name: this.playerName, bag: this.bag, taken: [...this.taken], phase: this.phase, run: this.run }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ scene: this.cur.id, x: p.x, y: p.y, dir: p.dir, name: this.playerName, bag: this.bag, taken: [...this.taken], flags: [...this.flags], phase: this.phase, run: this.run }));
     } catch (e) { /* 浏览器不让存（无痕模式等）就算了 */ }
   }
   restore() {
@@ -236,6 +239,9 @@ class Game {
     const p = this.player;
     p.x = d.x; p.y = d.y; p.dir = d.dir || 'down';
     this.bag = d.bag || []; this.taken = new Set(d.taken || []);
+    this.flags = new Set(d.flags || []);
+    // 读档回到序章时，撬棍已经拿过的话校门应该还是开的
+    if (this.cur.id === 'prologue' && this.flags.has('拿到撬棍')) openGate(this.cur);
     this.playerName = d.name || CHARACTERS[0].name;
     this.phase = d.phase === 'night' ? 'night' : 'day';
     this.run = d.run || this.meta.runs || 1;        // 老存档没记局数，就按目前已开过的局算
@@ -263,7 +269,7 @@ class Game {
   }
   // 重新开始：清掉存档，回到最初的位置
   resetGame() {
-    this.bag = []; this.taken = new Set();
+    this.bag = []; this.taken = new Set(); this.flags = new Set();
     this.phase = 'day';
     // 只清这一局：META_KEY 不动，不然跨周目的进度和彩蛋就白攒了
     try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* 忽略 */ }
@@ -278,7 +284,9 @@ class Game {
     this.phase = 'day';
     this.run = metaStartRun(this.meta);             // 新的一局，计数器 +1（读档继续不算）
     this.mode = 'play';
-    this.enter(this.start.scene, this.start.entry);
+    // Miss Ren 从上学路上开始（序章），其他人直接进教室
+    if (c.name === 'Miss Ren') this.enter('prologue', 'start');
+    else this.enter(this.start.scene, this.start.entry);
     if (this.onStart) this.onStart();
   }
 
@@ -466,11 +474,21 @@ class Game {
       const dx = this.player.x - n.p.x, dy = this.player.y - n.p.y;
       n.p.dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
       n.talking = true; n.p.moving = false;
-      this.say(n.lines.map(t => ({ name: n.name, text: t })));
+      // linesFor 让台词能随剧情进度变；没有就用固定的 lines
+      const lines = n.linesFor ? n.linesFor(this) : n.lines;
+      this.say(lines.map(t => ({ name: n.name, text: t })));
+      if (n.onTalk) n.onTalk(this);          // 说完这段要发生的事（给东西、开门……）
       return;
     }
     const s = this.cur.spots.get(tx + ',' + ty);
     if (s) this.say([{ name: s.name, text: s.text }]);
+  }
+
+  // 直接塞进书包（剧情给的东西，不是从地上捡的）
+  giveItem(it) {
+    if (this.taken.has(it.id)) return;
+    this.taken.add(it.id); this.bag.push(it.id); ITEM_DB[it.id] = it;
+    this.save();
   }
 
   // NPC 在自己的范围里闲逛
@@ -653,7 +671,8 @@ class Game {
     for (const m of this.monsters) {
       if (!overlaps(box, m.box())) continue;
       hitAny = true;
-      m.hurt(dx * 190 + (dx ? 0 : (m.x - p.x) * 2), dy * 190 + (dy ? 0 : (m.y - p.y) * 2));
+      // 撬棍只是打得更疼，没有也能打
+      m.hurt(dx * 190 + (dx ? 0 : (m.x - p.x) * 2), dy * 190 + (dy ? 0 : (m.y - p.y) * 2), this.bag.includes('crowbar') ? 2 : 1);
       this.burst(m.x, m.y - 10, '#b8e0ff', 10);
       this.shake = 0.12;
       if (m.dead) this.burst(m.x, m.y - 10, '#6a7a9a', 18);

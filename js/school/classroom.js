@@ -153,7 +153,7 @@ const CLASSES = {
     seat: { x: 18, y: 4, text: '你的座位——靠窗最后一排。\n据说这是“主角专属座位”。' },
     npcs: [
       { name: '班主任·森老师', look: LOOK.teacher, x: 2, y: 7, dir: 'right', lines: ['早上好。你就是今天转来的同学吧？', '你的座位在靠窗那排的最后面。\n上课铃响之前，先和大家打个招呼吧。'] },
-      { name: '美咲', look: LOOK.sailor('#6a3a2a', '#4a2418'), x: 13, y: 7, dir: 'right', lines: ['啊，你就是转学生？我是美咲，班长哦。', '有什么不懂的尽管问我！'] },
+      { name: '美咲', look: LOOK.sailor('#6a3a2a', '#4a2418'), x: 13, y: 7, dir: 'right', lines: ['啊，你就是转学生？我是美咲，班长哦。', '有什么不懂的尽管问我！', '对了，校服扣子要扣到最上面一颗。\n鬼头主任每天早上都站在校门口数呢。'] },
       { name: '健太', look: LOOK.gakuran('#c89a4a', '#9a723a'), x: 14, y: 7, dir: 'left', lines: ['哟！新来的？放学后要不要一起去小卖部？', '听说今天炒面面包会打折！'] },
       { name: '雪乃', look: LOOK.sailor('#2a2438', '#1a1428'), x: 6, y: 3, dir: 'up', lines: ['……', '（她一直望着窗外，好像没注意到你。）'] },
       { name: '千夏', look: LOOK.sailor('#e0b040', '#b08a30'), x: 20, y: 9, dir: 'left', lines: ['嘿嘿，要不要看我新买的发卡？', '……啊，老师在看这边，一会儿再说！'] },

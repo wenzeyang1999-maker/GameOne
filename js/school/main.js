@@ -4,6 +4,7 @@
 // ============================================================
 
 const SCENES = {
+  prologue: buildPrologue,          // 上学路上（只有 Miss Ren 会进来）
   // 六间教室共用一个模板，全部注册；能不能进由 CLASSES 里的 open 决定
   ...Object.fromEntries(Object.keys(CLASSES).map(k => [classSceneId(k), () => buildClassroom(k)])),
   hall1: () => buildHallway(1),

@@ -238,7 +238,7 @@ function buildStaffroom() {
 
   d.npcs = [
     { name: '教头·山口', look: { hair: '#b8b4ac', hairDark: '#8a8680', cloth: '#5a4a3a', clothDark: '#42362a', pants: '#3a3030', collar: '#f4efe4', shoes: '#2e2a2a' },
-      x: 19, y: 7, dir: 'down', lines: ['嗯？你是 2A 的转学生吧。', '职员室不是随便进来玩的地方哦。\n……不过，有事的话随时可以来找老师商量。'] },
+      x: 19, y: 7, dir: 'down', lines: ['嗯？你是 2A 的转学生吧。', '职员室不是随便进来玩的地方哦。\n……不过，有事的话随时可以来找老师商量。', '要去四楼的话，先敲门。\n鬼头主任最讨厌别人直接推门进去。'] },
     { name: '数学老师·小野', look: { hair: '#4a3a2a', hairDark: '#2e2418', cloth: '#6a8aa8', clothDark: '#4e6a88', pants: '#3e4250', collar: '#f4efe4', shoes: '#2e2a2a' },
       x: 9, y: 8, dir: 'left', lines: ['啊，别看我屏幕！是……是期中考试的题目。', '转学生是吧？数学跟得上吗？\n有不会的可以来问我。'] },
     { name: '保健老师·白石', look: { hair: '#6a3a4a', hairDark: '#4a2434', cloth: '#f4f4f8', clothDark: '#cfd0dc', pants: '#8a8e9a', collar: '#f4f4f8', shoes: '#f4f4f8' },

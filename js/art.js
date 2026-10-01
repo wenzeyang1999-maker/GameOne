@@ -102,12 +102,12 @@ const CHAR_TOP = {
     '..kkHHHHHHHHkk..',
     '.kHHHGGHHHHHHHk.',
     '.kHHHHHHHHHsssk.',
-    '.kHHHHHHHssssSk.',
+    '.kHHHHHHHsssssk.',
     '.kHHHHHhssesssk.',
     '.kHHHHHhssesssk.',
-    '.kHHHHHhsssSssk.',
-    '.kHHHHHhssbssSk.',
-    '..kHhHHHSsssssk.',
+    '.kHHHHHhssssssk.',
+    '.kHHHHHhssbsssk.',
+    '..kHhHHHssssssk.',
     '...kkwwwwwwkk...',
     '..kCCWwwCCCCCk..',
     '..kCCCCCCCCCCk..',
@@ -115,30 +115,54 @@ const CHAR_TOP = {
     '..kccCCCCCCCck..',
   ],
 };
+// 地中海：头顶秃了露出头皮，只剩两鬓和后脑的一圈头发
+const BALD_HEAD = {
+  down: [
+    '....kkkkkkkk....',
+    '..kksssssssskk..',
+    '.kSssssssssssSk.',
+    '.kHssssssssssHk.',
+    '.kHHhsssssshHHk.',
+  ],
+  up: [
+    '....kkkkkkkk....',
+    '..kksssssssskk..',
+    '.kSssssssssssSk.',
+    '.kHssssssssssHk.',
+    '.kHHhsssssshHHk.',
+  ],
+  right: [
+    '....kkkkkkkk....',
+    '..kkHHsssssskk..',
+    '.kHHssssssssssk.',
+    '.kHHHsssssssssk.',
+  ],
+};
+
 // 吊带上衣：肩膀露出来，两根细带，手臂是光的。身体和脖子都比校服窄一圈
 const CAMI_BODY = {
   down: [
     '...kSssssssSk...',
-    '....kssssssk....',
     '...kscsssscsk...',
     '..ksCCCCCCCCsk..',
     '..ksCCCCggCCsk..',
+    '..ksCCCCCCCCsk..',
     '..kscCCCCCCcsk..',
   ],
   up: [
     '...kSssssssSk...',
-    '....kssssssk....',
     '...kscsssscsk...',
+    '..ksCCCCCCCCsk..',
     '..ksCCCCCCCCsk..',
     '..ksCCCCCCCCsk..',
     '..kscCCCCCCcsk..',
   ],
   right: [
     '...kSssssssSk...',
-    '....kssssssk....',
     '...kscsssscsk...',
     '...ksCCCCCCsk...',
     '...ksCCCCsCsk...',
+    '...ksCCCCCCsk...',
     '...kscCCCCCcsk..',
   ],
 };
@@ -397,12 +421,15 @@ function buildCharacter(p) {
       // 吊带上衣就换掉身体那几行，短裙就换掉腿那几行
       const body = p.cami ? CAMI_BODY[dir] : p.tshirt ? TSHIRT_BODY[dir] : p.suit ? SUIT_BODY[dir]
         : p.plaid ? PLAID_BODY[dir] : p.hoodie ? HOODIE_BODY[dir] : p.track ? TRACK_BODY[dir] : p.jk ? JK_BODY[dir] : null;
-      const top = body ? CHAR_TOP[dir].slice(0, 9).concat(body) : CHAR_TOP[dir];
+      // 地中海：把头顶那几行换掉
+      const head = p.bald ? BALD_HEAD[dir].concat(CHAR_TOP[dir].slice(BALD_HEAD[dir].length)) : CHAR_TOP[dir];
+      const top = body ? head.slice(0, 9).concat(body) : head;
       const legsNow = p.jk ? (dir === 'right' ? JK_LEGS.side : JK_LEGS.front)[f]
         : p.skirt ? (dir === 'right' ? CHAR_LEGS_SKIRT.side : CHAR_LEGS_SKIRT.front)[f]
         : p.track ? (dir === 'right' ? TRACK_LEGS.side : TRACK_LEGS.front)[f] : legSet[f];
       const rows = (p.pins ? [blank, blank, blank, blank] : []).concat(top, legsNow);
       const c = fromStrings(rows, pal);
+      if (p.longHair) drawLongHair(c.getContext('2d'), dir, p.hair, p.hairDark, p.pins ? 4 : 0);
       if (p.pins) drawPins(c.getContext('2d'), dir, p.pins);
       if (p.glasses) drawGlasses(c.getContext('2d'), dir, p.pins ? 4 : 0, p.glasses);
       frames[dir].push(c);
@@ -410,6 +437,22 @@ function buildCharacter(p) {
   }
   frames.left = frames.right.map(flipH);
   return frames;
+}
+
+// 长发：从肩膀两侧垂到腰，背面是整片的头发
+function drawLongHair(g, dir, hair, dark, yo) {
+  const y0 = yo + 9, L = 5;
+  const hank = (xo, xi) => {                 // xo 外侧（暗一点），xi 内侧
+    px(g, dark, xo, y0, 1, L); px(g, hair, xi, y0, 1, L);
+    px(g, PAL.k, xo, y0 + L, 2, 1);          // 发梢收个口
+  };
+  if (dir === 'right') { hank(1, 2); return; }        // 侧面：垂在身后
+  if (dir === 'up') {                                  // 背面：后背整片垂下来
+    px(g, hair, 3, y0, 10, L - 1);
+    px(g, dark, 7, y0, 1, L - 1);                      // 中间分一道
+    px(g, PAL.k, 3, y0 + L - 1, 10, 1);
+  }
+  hank(1, 2); hank(14, 13);
 }
 
 // 头顶两个小圆啾啾：一根短杆连着一个小球。外圈用深一号的粉色，不用黑描边

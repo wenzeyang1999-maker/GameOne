@@ -165,8 +165,8 @@ class Monster {
   }
 
   // 挨打：掉血 + 被打退
-  hurt(vx, vy) {
-    this.hp--; this.flash = 0.18; this.stun = 0.45;
+  hurt(vx, vy, dmg = 1) {
+    this.hp -= dmg; this.flash = 0.18; this.stun = 0.45;
     this.kx = vx; this.ky = vy;
     if (this.hp <= 0) this.dead = true;
   }

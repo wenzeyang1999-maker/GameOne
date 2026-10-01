@@ -279,7 +279,7 @@ const SMALL_ROOMS = {
       d.prop(19, 11, spritePlant()); d.setSolid(19, 11); d.spot(19, 11, '', '很大的一盆观叶植物，叶子擦得发亮。');
       for (let x = RX0; x <= RX1; x++) d.spot(x, 2, '', '墙上挂着历代校长的照片，还有写着校训的匾额。');
     },
-    npcs: [{ name: '校长·久保田', look: { hair: '#d8d4cc', hairDark: '#a8a49c', cloth: '#3a3a4a', clothDark: '#26262e', pants: '#3a3a4a', collar: '#f4efe4', shoes: '#2e2a2a' },
+    npcs: [{ name: '校长·久保田', look: { hair: '#1c1a1a', hairDark: '#0d0c0c', cloth: '#3a3a4a', clothDark: '#26262e', shirt: '#e6e2d6', pants: '#3a3a4a', collar: '#e6e2d6', shoes: '#2e2a2a', suit: true, bald: true },   // 地中海 + 黑发
       x: 12, y: 4, dir: 'down',
       lines: ['哦，是学生啊。进来的时候记得敲门。', '我们学校不大，但每个学生我都记得名字。\n……你的名字，我也很快就会记住的。'] }],
   },
@@ -295,7 +295,7 @@ const SMALL_ROOMS = {
     items: (d, A) => {
       const desk = spriteVPDesk();
       d.props.push({ img: desk, x: 9 * 16, y: 7 * 16 - desk.height, base: 7 * 16 - 1 });
-      for (const x of [9, 10]) { d.setSolid(x, 6); d.spot(x, 6, '', '教导主任的桌子。\n桌角堆着一摞“反省文”的格子纸。'); }
+      for (const x of [9, 10]) { d.setSolid(x, 6); d.spot(x, 6, '', '鬼头主任的桌子。\n桌角堆着一摞“反省文”的格子纸。'); }
       d.prop(9, 5, spriteOfficeChair(true)); d.setSolid(9, 5); d.spot(9, 5, '', '主任的椅子。扶手已经磨得发亮。');
       d.prop(12, 6, spriteOfficeChair(false)); d.setSolid(12, 6); d.spot(12, 6, '', '被叫来谈话的学生坐的椅子。\n看着就让人紧张。');
       for (const x of [15, 16, 17, 18]) { d.prop(x, 4, spriteCabinet()); d.setSolid(x, 4); d.spot(x, 4, '', '文件柜。标签写着“违纪记录”“社团申请”。'); }
@@ -312,7 +312,7 @@ const SMALL_ROOMS = {
       for (let x = RX0; x <= RX1; x++) d.spot(x, 2, '', '白板上是这周的值日和巡查安排。');
       for (const x of [17, 18, 19, 20]) d.spot(x, 2, '', paintingText(SUFFER.saturn));
     },
-    npcs: [{ name: '教导主任·鬼头', look: { hair: '#2a2a2a', hairDark: '#141414', cloth: '#4a4a56', clothDark: '#32323c', pants: '#3a3a44', collar: '#f4efe4', shoes: '#2e2a2a' },
+    npcs: [{ name: '鬼头主任', look: { hair: '#c9c5bb', hairDark: '#948f85', cloth: '#6e5134', clothDark: '#4b3522', shirt: '#ece6d8', pants: '#5c4228', collar: '#ece6d8', shoes: '#3a2a1e', suit: true },   // 灰白头发 + 棕色西装
       x: 10, y: 5, dir: 'down',
       lines: ['站住。校服的扣子扣好。', '……嗯，还算整齐。没事的话就回教室去吧。'] }],
   },
