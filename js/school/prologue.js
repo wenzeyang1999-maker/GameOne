@@ -78,7 +78,7 @@ function spriteWallet() {
 function walletItem() {
   return {
     id: 'wallet', name: T('item.钱包.名字'), desc: T('item.钱包.说明'),
-    text: T('item.钱包.捡起'), color: '#6a3a2a', auto: true, ask: true,
+    color: '#6a3a2a', auto: true, ask: true,
   };
 }
 

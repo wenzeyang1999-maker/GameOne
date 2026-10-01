@@ -229,7 +229,13 @@ class Game {
     if (!this.cur) return;
     const p = this.player;
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ scene: this.cur.id, x: p.x, y: p.y, dir: p.dir, name: this.playerName, bag: this.bag, taken: [...this.taken], flags: [...this.flags], phase: this.phase, run: this.run }));
+      // 书包里只存 id，名字那些在内存的 ITEM_DB 里，刷新就没了 —— 所以一起存下来
+      const itemDefs = {};
+      for (const id of this.bag) {
+        const it = ITEM_DB[id];
+        if (it) itemDefs[id] = { name: it.name, desc: it.desc, color: it.color };
+      }
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ scene: this.cur.id, x: p.x, y: p.y, dir: p.dir, name: this.playerName, bag: this.bag, itemDefs, taken: [...this.taken], flags: [...this.flags], phase: this.phase, run: this.run }));
     } catch (e) { /* 浏览器不让存（无痕模式等）就算了 */ }
   }
   restore() {
@@ -245,6 +251,8 @@ class Game {
     const p = this.player;
     p.x = d.x; p.y = d.y; p.dir = d.dir || 'down';
     this.bag = d.bag || []; this.taken = new Set(d.taken || []);
+    // 把存下来的物品说明装回 ITEM_DB，不然书包里只显示得出 id
+    for (const [id, def] of Object.entries(d.itemDefs || {})) ITEM_DB[id] = { id, ...def };
     this.flags = new Set(d.flags || []);
     // 读档回到序章：答应了却还没捡的话，钱包得重新放回草丛里
     if (this.cur.id === 'prologue' && this.flags.has('答应帮忙') && !this.taken.has('wallet')) {
@@ -477,7 +485,7 @@ class Game {
     if (!it || this.taken.has(it.id)) return false;
     // 标了 ask 的东西，先问一句，玩家自己选捡还是不捡
     if (mayAsk && it.ask) {
-      this.say([{ name: '', text: it.text, choices: [
+      this.say([{ name: '', text: it.text || `拾取「${it.name}」？`, choices: [
         { label: T('选项.拾取'), onPick: g => g.takeItem(tx, ty, false) },
         { label: T('选项.放弃'), onPick: g => g.declined.add(it.id) },
       ] }]);
@@ -499,7 +507,7 @@ class Game {
     }
     this.save();
     const got = { name: '', text: `拾取「${it.name}」。\n（按 I 可以看书包里的东西）` };
-    this.say(showText ? [{ name: '', text: it.text }, got] : [got]);
+    this.say(showText && it.text ? [{ name: '', text: it.text }, got] : [got]);
     return true;
   }
 
