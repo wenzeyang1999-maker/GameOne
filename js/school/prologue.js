@@ -74,6 +74,14 @@ function spriteWallet() {
   return c;
 }
 
+// 钱包。auto: true —— 走到旁边就自动捡起来，不用按键
+function walletItem() {
+  return {
+    id: 'wallet', name: T('item.钱包.名字'), desc: T('item.钱包.说明'),
+    text: T('item.钱包.捡起'), color: '#6a3a2a', auto: true,
+  };
+}
+
 // 老奶奶：驼背、灰白头发、深色和服外套
 const GRANNY_LOOK = {
   hair: '#c8c4bc', hairDark: '#9a968e', cloth: '#5a4a52', clothDark: '#3e333a',
@@ -176,10 +184,7 @@ function buildPrologue() {
               { label: T('prologue.选项.帮'), onPick: game => {
                 game.flags.add('答应帮忙');
                 // 答应了，钱包这时才出现在草丛里
-                game.dropItem(WALLET[0], WALLET[1], {
-                  id: 'wallet', name: T('item.钱包.名字'), desc: T('item.钱包.说明'),
-                  text: T('item.钱包.捡起'), color: '#6a3a2a',
-                }, spriteWallet());
+                game.dropItem(WALLET[0], WALLET[1], walletItem(), spriteWallet());
                 game.save();
               } },
               { label: T('prologue.选项.无视'), onPick: () => {} },

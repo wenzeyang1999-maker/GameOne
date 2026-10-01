@@ -242,10 +242,7 @@ class Game {
     this.flags = new Set(d.flags || []);
     // 读档回到序章：答应了却还没捡的话，钱包得重新放回草丛里
     if (this.cur.id === 'prologue' && this.flags.has('答应帮忙') && !this.bag.includes('wallet')) {
-      this.dropItem(WALLET[0], WALLET[1], {
-        id: 'wallet', name: T('item.钱包.名字'), desc: T('item.钱包.说明'),
-        text: T('item.钱包.捡起'), color: '#6a3a2a',
-      }, spriteWallet());
+      this.dropItem(WALLET[0], WALLET[1], walletItem(), spriteWallet());
     }
     this.playerName = d.name || CHARACTERS[0].name;
     this.phase = d.phase === 'night' ? 'night' : 'day';
@@ -468,21 +465,36 @@ class Game {
     this.interactAt(tx, ty);
   }
 
-  interactAt(tx, ty) {
-    // 先看这里有没有能捡的东西
-    const it = this.cur.items.get(tx + ',' + ty);
-    if (it && !this.taken.has(it.id)) {
-      this.taken.add(it.id); this.bag.push(it.id); ITEM_DB[it.id] = it;
-      // 捡走了就从场上消失：地上那一格、以及它自己那张图
-      this.cur.items.delete(tx + ',' + ty);
-      if (it.prop) {
-        const i = this.cur.props.indexOf(it.prop);
-        if (i >= 0) this.cur.props.splice(i, 1);
-      }
-      this.save();
-      this.say([{ name: '', text: it.text }, { name: '', text: `把「${it.name}」放进了书包。\n（按 I 可以看书包里的东西）` }]);
-      return;
+  // 捡起某一格的东西。捡到了返回 true
+  pickUp(tx, ty) {
+    const s = this.cur, key = tx + ',' + ty, it = s.items.get(key);
+    if (!it || this.taken.has(it.id)) return false;
+    this.taken.add(it.id); this.bag.push(it.id); ITEM_DB[it.id] = it;
+    // 捡走了就从场上消失：地上那一格、以及它自己那张图
+    s.items.delete(key);
+    if (it.prop) {
+      const i = s.props.indexOf(it.prop);
+      if (i >= 0) s.props.splice(i, 1);
     }
+    this.save();
+    this.say([{ name: '', text: it.text }, { name: '', text: `把「${it.name}」放进了书包。\n（按 I 可以看书包里的东西）` }]);
+    return true;
+  }
+
+  // 脚下和四周一圈的东西都能捡，不用正对着它
+  pickUpNear(autoOnly = false) {
+    const [px0, py0] = this.player.tile();
+    for (const [dx, dy] of [[0, 0], [0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const it = this.cur.items.get((px0 + dx) + ',' + (py0 + dy));
+      if (!it || this.taken.has(it.id)) continue;
+      if (autoOnly && !it.auto) continue;        // 自动捡只捡标了 auto 的
+      return this.pickUp(px0 + dx, py0 + dy);
+    }
+    return false;
+  }
+
+  interactAt(tx, ty) {
+    if (this.pickUp(tx, ty)) return;
     const n = this.cur.personAt(tx, ty);
     if (n) {
       const dx = this.player.x - n.p.x, dy = this.player.y - n.p.y;
@@ -638,6 +650,9 @@ class Game {
       this.followPath(dt);
     }
 
+    // 走到旁边就自动捡起来的东西（标了 auto 的，比如钱包）
+    if (this.pickUpNear(true)) return;
+
     // 踩到出口就切换场景
     const [ptx, pty] = p.tile(), ex = s.exits.get(ptx + ',' + pty);
     if (ex) { this.goTo(ex.to, ex.entry); return; }
@@ -646,7 +661,8 @@ class Game {
     if (hit('KeyM')) { this.spawnMonster(); this.toast(`异形 ×${this.monsters.length}（N 清除）`); }
     if (hit('KeyN')) { this.monsters = []; this.toast('异形已清除'); }
     if (hit('KeyJ', 'KeyK')) { this.attack(); return; }
-    if (hit('KeyE', 'Enter', 'Space')) this.interactAt(...p.facing());
+    // 按 E：先捡四周的东西（不用正对着），没有再调查面前那一格
+    if (hit('KeyE', 'Enter', 'Space')) { if (!this.pickUpNear()) this.interactAt(...p.facing()); return; }
     if (click) {
       const [cx, cy] = this.camera();
       this.clickTile(Math.floor((click[0] + cx) / 16), Math.floor((click[1] + cy) / 16));
