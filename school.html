@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>学校</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #140f22; overflow: hidden; }
+  body { display: flex; align-items: center; justify-content: center; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges; display: block; cursor: pointer; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// 每次加载都带上时间戳，避免浏览器（尤其是 Safari）用到旧的脚本
+const FILES = [
+  'js/font.js',
+  'js/art.js',
+  'js/school/engine.js',
+  'js/school/props.js',
+  'js/school/paintings.js',
+  'js/school/classroom.js',
+  'js/school/hallway.js',
+  'js/school/staffroom.js',
+  'js/school/smallrooms.js',
+  'js/school/hall5.js',
+  'js/school/combat.js',
+  'js/school/main.js',
+];
+for (const f of FILES) document.write('<script src="' + f + '?v=' + Date.now() + '"><\/script>');
+</script>
+</body>
+</html>
