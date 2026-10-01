@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Edit(js/**)",
+      "Edit(*.html)",
+      "Edit(*.md)",
+      "Edit(serve.py)",
+      "Edit(assets/**)",
+      "Bash(python3 serve.py:*)",
+      "Bash(python3 -m http.server:*)",
+      "Bash(curl -s http://localhost:8000/:*)",
+      "Bash(curl -sI http://localhost:8000/:*)",
+      "Bash(curl -s -o /dev/null -w:*)",
+      "Bash(lsof -i :8000)",
+      "Bash(node --check:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git stash list:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(grep:*)",
+      "Bash(rg:*)",
+      "Bash(find:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(sed -n:*)",
+      "Bash(file:*)",
+      "Bash(du:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -fd:*)",
+      "Bash(git checkout --:*)"
+    ]
+  }
+}
