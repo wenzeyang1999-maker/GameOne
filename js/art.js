@@ -199,6 +199,34 @@ const SUIT_BODY = {
   ],
 };
 
+// 无袖连帽卫衣：帽子堆在脖子后面，两条抽绳（N），手臂光着（s/S 是肌肉的受光和暗部）
+const HOODIE_BODY = {
+  down: [
+    '..kSssssssssSk..',
+    '..kCCCwwwwCCCk..',
+    '.ksSCCNccNCCSsk.',
+    '.ksSCCCccCCCSsk.',
+    '.ksSCCCccCCCSsk.',
+    '.kssCCCccCCCssk.',
+  ],
+  up: [
+    '..kSssssssssSk..',
+    '..kCCCCCCCCCCk..',
+    '.ksCCCCCCCCCCsk.',
+    '.ksSCCCCCCCCSsk.',
+    '.ksSCCCCCCCCSsk.',
+    '.kssCCCCCCCCssk.',
+  ],
+  right: [
+    '..kSssssssssSk..',
+    '..kCCCwwwCCCCk..',
+    '..kCCCCNcCCCsk..',
+    '..kCCCCCcCCCsk..',
+    '..kCCCCCcCCCsk..',
+    '..kccCCCCCCssk..',
+  ],
+};
+
 // 程序员格子衬衫：里面一件灰 T，外面红黑格子
 const PLAID_BODY = {
   down: [
@@ -255,6 +283,48 @@ const TRACK_BODY = {
   ],
 };
 
+// JK 水手服：白衬衣 + 海军领（w，镶白边 N）+ 胸前的领结（I）
+const JK_BODY = {
+  down: [
+    '...kSssssssSk...',
+    '...kkwwwwwwkk...',
+    '...kwNCIICNwk...',
+    '..kwwNCIICNwwk..',
+    '..kCCCCIICCCCk..',
+    '..kscCCCCCCcsk..',
+  ],
+  up: [
+    '...kSssssssSk...',
+    '...kkwwwwwwkk...',
+    '...kwwwwwwwwk...',
+    '..kwwwwwwwwwwk..',
+    '..kCwwNNNNwwCk..',
+    '..kscCCCCCCcsk..',
+  ],
+  right: [
+    '...kSssssssSk...',
+    '...kkwwwwwwkk...',
+    '...kwCCIICwwk...',
+    '..kwwCCIICwwwk..',
+    '...kCCCsCCCCk...',
+    '...kccCCCCCck...',
+  ],
+};
+
+// 百褶裙 + 白袜
+const JK_LEGS = {
+  front: [
+    ['...kLlLLlLLlk...', '..kLlLLlLLlLLk..', '....kNNk.kNNk...', '....kFfk.kfFk...'],
+    ['...kLlLLlLLlk...', '..kLlLLlLLlLLk..', '....kNNk.kNNk...', '....kFfkkkkk....'],
+    ['...kLlLLlLLlk...', '..kLlLLlLLlLLk..', '....kNNk.kNNk...', '....kkkkkfFk....'],
+  ],
+  side: [
+    ['...kLlLLlLLlk...', '..kLlLLlLLlLLk..', '.....kNNNNk.....', '.....kFffFk.....'],
+    ['...kLlLLlLLlk...', '..kLlLLlLLlLLk..', '....kNNk.kNNk...', '...kFfk..kfFk...'],
+    ['...kLlLLlLLlk...', '..kLlLLlLLlLLk..', '.....kNNNNk.....', '.....kFffFk.....'],
+  ],
+};
+
 // 运动裤：裤腿外侧也有一条条纹
 const TRACK_LEGS = {
   front: [
@@ -272,14 +342,14 @@ const TRACK_LEGS = {
 // 短裙 + 光腿
 const CHAR_LEGS_SKIRT = {
   front: [
-    ['..kLLLLLLLLLLk..', '.kLLLLLLLLLLLLk.', '....kssk.kssk...', '....kFfk.kfFk...'],
-    ['..kLLLLLLLLLLk..', '.kLLLLLLLLLLLLk.', '....kssk.kssk...', '....kFfkkkkk....'],
-    ['..kLLLLLLLLLLk..', '.kLLLLLLLLLLLLk.', '....kssk.kssk...', '....kkkkkfFk....'],
+    ['...kLLLLLLLLk...', '..kLLLLLLLLLLk..', '....kssk.kssk...', '....kFfk.kfFk...'],
+    ['...kLLLLLLLLk...', '..kLLLLLLLLLLk..', '....kssk.kssk...', '....kFfkkkkk....'],
+    ['...kLLLLLLLLk...', '..kLLLLLLLLLLk..', '....kssk.kssk...', '....kkkkkfFk....'],
   ],
   side: [
-    ['..kLLLLLLLLLLk..', '.kLLLLLLLLLLLLk.', '.....kssssk.....', '.....kFffFk.....'],
-    ['..kLLLLLLLLLLk..', '.kLLLLLLLLLLLLk.', '....kssk.kssk...', '...kFfk..kfFk...'],
-    ['..kLLLLLLLLLLk..', '.kLLLLLLLLLLLLk.', '.....kssssk.....', '.....kFffFk.....'],
+    ['...kLLLLLLLLk...', '..kLLLLLLLLLLk..', '.....kssssk.....', '.....kFffFk.....'],
+    ['...kLLLLLLLLk...', '..kLLLLLLLLLLk..', '....kssk.kssk...', '...kFfk..kfFk...'],
+    ['...kLLLLLLLLk...', '..kLLLLLLLLLLk..', '.....kssssk.....', '.....kFffFk.....'],
   ],
 };
 
@@ -315,7 +385,7 @@ function buildCharacter(p) {
     I: p.shirt || p.clothDark,                                 // 西装里面的衬衫
     P: p.plaidDark || shade(p.cloth, -0.45),                   // 格子的深色
     N: p.stripe || shade(p.cloth, -0.6),                       // 运动服的条纹
-    L: p.pants, F: p.shoes || '#4a3428', f: shade(p.shoes || '#4a3428', 0.3),
+    L: p.pants, l: shade(p.pants, -0.35),                      // 裤子/裙子 + 百褶的暗线 F: p.shoes || '#4a3428', f: shade(p.shoes || '#4a3428', 0.3),
   };
   const frames = {};
   const blank = '................';
@@ -326,9 +396,10 @@ function buildCharacter(p) {
       // 头上有啾啾的话，上面留两行位置
       // 吊带上衣就换掉身体那几行，短裙就换掉腿那几行
       const body = p.cami ? CAMI_BODY[dir] : p.tshirt ? TSHIRT_BODY[dir] : p.suit ? SUIT_BODY[dir]
-        : p.plaid ? PLAID_BODY[dir] : p.track ? TRACK_BODY[dir] : null;
+        : p.plaid ? PLAID_BODY[dir] : p.hoodie ? HOODIE_BODY[dir] : p.track ? TRACK_BODY[dir] : p.jk ? JK_BODY[dir] : null;
       const top = body ? CHAR_TOP[dir].slice(0, 9).concat(body) : CHAR_TOP[dir];
-      const legsNow = p.skirt ? (dir === 'right' ? CHAR_LEGS_SKIRT.side : CHAR_LEGS_SKIRT.front)[f]
+      const legsNow = p.jk ? (dir === 'right' ? JK_LEGS.side : JK_LEGS.front)[f]
+        : p.skirt ? (dir === 'right' ? CHAR_LEGS_SKIRT.side : CHAR_LEGS_SKIRT.front)[f]
         : p.track ? (dir === 'right' ? TRACK_LEGS.side : TRACK_LEGS.front)[f] : legSet[f];
       const rows = (p.pins ? [blank, blank, blank, blank] : []).concat(top, legsNow);
       const c = fromStrings(rows, pal);
@@ -360,12 +431,10 @@ function drawGlasses(g, dir, yo, color) {
   if (dir === 'down') {
     px(g, color, 4, yo + 5, 8, 1);                // 横过两只眼睛上方的镜框
     px(g, color, 3, yo + 5, 1, 2); px(g, color, 12, yo + 5, 1, 2);   // 两边的外框角
-    px(g, color, 4, yo + 8, 3, 1); px(g, color, 9, yo + 8, 3, 1);    // 镜片下沿
     px(g, glass, 4, yo + 6, 1, 1); px(g, glass, 9, yo + 6, 1, 1);    // 镜片反光
   } else {
     px(g, color, 7, yo + 5, 5, 1);
     px(g, color, 12, yo + 5, 1, 2);
-    px(g, color, 9, yo + 8, 3, 1);
     px(g, glass, 9, yo + 6, 1, 1);
   }
 }

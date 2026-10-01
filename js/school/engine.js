@@ -49,11 +49,11 @@ function text(g, s, x, y, color = '#f4efe4', shadow = '#1a1428') {
   g.fillStyle = color; g.fillText(s, x, y);
 }
 function textW(g, s) { g.font = FONT; return g.measureText(s).width; }
-function panel(g, x, y, w, h) {
+function panel(g, x, y, w, h, top = '#34408a', bot = '#1c2250') {
   g.fillStyle = '#1a1428'; g.fillRect(x + 1, y, w - 2, h); g.fillRect(x, y + 1, w, h - 2);
   g.fillStyle = '#f4efe4'; g.fillRect(x + 1, y + 1, w - 2, h - 2);
   const grad = g.createLinearGradient(0, y, 0, y + h);
-  grad.addColorStop(0, '#34408a'); grad.addColorStop(1, '#1c2250');
+  grad.addColorStop(0, top); grad.addColorStop(1, bot);
   g.fillStyle = grad; g.fillRect(x + 2, y + 2, w - 4, h - 4);
 }
 function wrap(g, s, maxW) {
@@ -183,13 +183,14 @@ const CHARACTERS = [
     hair: '#1f1b1a', hairDark: '#100e0e', cloth: '#4e4e57', clothDark: '#363640',
     shirt: '#17171c', collar: '#17171c', pants: '#4a4a53', shoes: '#1d1d22', suit: true,
   } },
-  { name: '凯哥', look: {                           // 程序员的红黑格子衬衫 + 牛仔裤
-    hair: '#2a2220', hairDark: '#171211', cloth: '#a8403a', clothDark: '#7a2b28', plaidDark: '#5c2422',
-    collar: '#d6d2c8', pants: '#3c4557', shoes: '#4a3c32', plaid: true,
+  { name: '凯哥', look: {                           // 无袖连帽卫衣 + 牛仔裤 + 黑白球鞋
+    hair: '#5a4330', hairDark: '#3a2a1c', cloth: '#3a3b42', clothDark: '#23242a',
+    collar: '#4e5059', stripe: '#d6d2c6', pants: '#34405c', shoes: '#1d1e24', hoodie: true,
   } },
   // 阿奇：白色运动套装，袖子和裤腿外侧一条深蓝条纹，细框眼镜
   { name: '阿奇', look: { hair: '#1d1a18', hairDark: '#0e0c0b', cloth: '#ece9e1', clothDark: '#c6c2b7', stripe: '#2b3566', collar: '#d8d4ca', pants: '#ded9cf', shoes: '#b1854f', track: true, glasses: '#4a4458' } },
-  { name: 'Wen', look: LOOK.player },
+  // Wen：普通 JK 水手服，白衬衣配藏青领子和百褶裙，红领结
+  { name: 'Wen', look: { hair: '#3b2a20', hairDark: '#241710', cloth: '#f1ece1', clothDark: '#cdc7ba', collar: '#2b3454', shirt: '#b43a4a', stripe: '#f1ece1', pants: '#2f3a5c', shoes: '#6d4a34', jk: true } },
 ];
 
 // ============================================================
@@ -207,6 +208,9 @@ class Game {
     this.saveAcc = 0;
     this.bag = []; this.taken = new Set();       // 书包里的东西 / 已经捡过的
     this.monsters = []; this.fx = []; this.trail = []; this.swing = null; this.shake = 0;
+    this.phase = 'day';                             // 时段：day 白天（没有怪）/ night 晚自习后（除教室外都锁）
+    this.run = 0;                                   // 这是第几局，通关判彩蛋要用
+    this.meta = loadMeta();                         // 跨周目进度，清档不动它
     this.restored = this.restore();                 // 有存档就接着上次玩
     this.mode = this.restored ? 'play' : 'select';  // 没存档就先选人
     this.pick = 0;
@@ -221,7 +225,7 @@ class Game {
     if (!this.cur) return;
     const p = this.player;
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ scene: this.cur.id, x: p.x, y: p.y, dir: p.dir, name: this.playerName, bag: this.bag, taken: [...this.taken] }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ scene: this.cur.id, x: p.x, y: p.y, dir: p.dir, name: this.playerName, bag: this.bag, taken: [...this.taken], phase: this.phase, run: this.run }));
     } catch (e) { /* 浏览器不让存（无痕模式等）就算了 */ }
   }
   restore() {
@@ -233,6 +237,8 @@ class Game {
     p.x = d.x; p.y = d.y; p.dir = d.dir || 'down';
     this.bag = d.bag || []; this.taken = new Set(d.taken || []);
     this.playerName = d.name || CHARACTERS[0].name;
+    this.phase = d.phase === 'night' ? 'night' : 'day';
+    this.run = d.run || this.meta.runs || 1;        // 老存档没记局数，就按目前已开过的局算
     // 存档以后场景改过的话，位置可能卡在墙里：挪到最近能站的格子
     const [tx, ty] = p.tile();
     if (this.cur.isSolid(tx, ty) || this.cur.exits.has(tx + ',' + ty)) {
@@ -258,6 +264,8 @@ class Game {
   // 重新开始：清掉存档，回到最初的位置
   resetGame() {
     this.bag = []; this.taken = new Set();
+    this.phase = 'day';
+    // 只清这一局：META_KEY 不动，不然跨周目的进度和彩蛋就白攒了
     try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* 忽略 */ }
     this.mode = 'select'; this.pick = 0; this.dialog = null; this.fading = null; this.fade = 0;
   }
@@ -267,13 +275,18 @@ class Game {
     const c = CHARACTERS[i];
     this.playerName = c.name;
     this.player = new Person(c.look, 0, 0, 'up');
+    this.phase = 'day';
+    this.run = metaStartRun(this.meta);             // 新的一局，计数器 +1（读档继续不算）
     this.mode = 'play';
     this.enter(this.start.scene, this.start.entry);
     if (this.onStart) this.onStart();
   }
 
-  updateSelect(click) {
+  updateSelect(click, dt) {
     const cols = 3;
+    this.selT = (this.selT || 0) + (dt > 0 ? Math.min(dt, 0.1) : 0);
+    this.hover = mouse.x < 0 ? -1 : this.selectCellAt(mouse.x, mouse.y);   // 鼠标指着谁
+    if (this.hover >= 0) this.pick = this.hover;
     if (hit('ArrowRight', 'KeyD')) this.pick = (this.pick + 1) % CHARACTERS.length;
     if (hit('ArrowLeft', 'KeyA')) this.pick = (this.pick + CHARACTERS.length - 1) % CHARACTERS.length;
     if (hit('ArrowDown', 'KeyS')) this.pick = (this.pick + cols) % CHARACTERS.length;
@@ -307,13 +320,19 @@ class Game {
     g.font = FONT; g.textBaseline = 'top';
     const tw = textW(g, title);
     text(g, title, Math.round((VW - tw) / 2), 24, '#ffe08a');
-    if (!this.selFrames) this.selFrames = CHARACTERS.map(c => buildCharacter(c.look).down[0]);
+    if (!this.selFrames) this.selFrames = CHARACTERS.map(c => buildCharacter(c.look).down);
+    const CYCLE = [0, 1, 0, 2];                       // 迈左脚 -> 站 -> 迈右脚 -> 站
     CHARACTERS.forEach((c, i) => {
-      const [x, y, w, h] = this.selectCell(i), on = i === this.pick;
-      panel(g, x, y, w, h);
+      const [x, y, w, h] = this.selectCell(i), on = i === this.pick, hv = i === this.hover;
+      // 鼠标指上去：底色亮起来，小人停下（以后这里还会在右下角弹高清立绘）
+      panel(g, x, y, w, h, hv ? '#4d5fc4' : '#34408a', hv ? '#2a3576' : '#1c2250');
       if (on) { g.fillStyle = '#ffd24a'; for (const [ax, ay, bw, bh] of [[0, 0, 8, 1], [0, 0, 1, 8], [w - 8, 0, 8, 1], [w - 1, 0, 1, 8], [0, h - 1, 8, 1], [0, h - 8, 1, 8], [w - 8, h - 1, 8, 1], [w - 1, h - 8, 1, 8]]) g.fillRect(x + ax, y + ay, bw, bh); }
-      const img = this.selFrames[i];
-      g.drawImage(img, 0, 0, img.width, img.height, Math.round(x + w / 2 - img.width), y + 6, img.width * 2, img.height * 2);
+      // 原地踏步 + 上下一点点浮动，每个人错开一点，看起来不整齐划一
+      const t = (this.selT || 0) + i * 0.37;
+      const f = hv ? 0 : CYCLE[Math.floor(t * 4) % 4];
+      const bob = hv ? 0 : (Math.floor(t * 4) % 2 ? 0 : -2);
+      const img = this.selFrames[i][f];
+      g.drawImage(img, 0, 0, img.width, img.height, Math.round(x + w / 2 - img.width), y + 6 + bob, img.width * 2, img.height * 2);
       const nw = textW(g, c.name);
       text(g, c.name, Math.round(x + (w - nw) / 2), y + h - 16, on ? '#ffe08a' : '#f4efe4');
     });
@@ -482,7 +501,7 @@ class Game {
   // ---------------- 更新 ----------------
   update(dt) {
     this.time += dt;
-    if (this.mode === 'select') { const c = mouse.click; mouse.click = null; this.updateSelect(c); return; }
+    if (this.mode === 'select') { const c = mouse.click; mouse.click = null; this.updateSelect(c, dt); return; }
     if (this.marker) this.marker.t += dt;
     // 走动的时候每隔几秒存一次
     if ((this.saveAcc += dt) > 3) { this.saveAcc = 0; if (this.player.moving) this.save(); }
