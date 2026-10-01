@@ -237,6 +237,11 @@ class Game {
     try { d = JSON.parse(localStorage.getItem(SAVE_KEY)); } catch (e) { return false; }
     if (!d || !this.builders[d.scene]) return false;
     this.cur = this.scene(d.scene);
+    this.playerName = d.name || CHARACTERS[0].name;
+    // 外观也要跟着存档恢复：构造函数里建的是默认的 LOOK.player，
+    // 只有选人时才会按角色重建，不在这儿重建的话刷新就变回默认那身衣服
+    const c = CHARACTERS.find(ch => ch.name === this.playerName);
+    if (c) this.player = new Person(c.look, 0, 0, d.dir || 'down');
     const p = this.player;
     p.x = d.x; p.y = d.y; p.dir = d.dir || 'down';
     this.bag = d.bag || []; this.taken = new Set(d.taken || []);
@@ -245,7 +250,6 @@ class Game {
     if (this.cur.id === 'prologue' && this.flags.has('答应帮忙') && !this.taken.has('wallet')) {
       this.dropItem(WALLET[0], WALLET[1], walletItem(), spriteWallet());
     }
-    this.playerName = d.name || CHARACTERS[0].name;
     this.phase = d.phase === 'night' ? 'night' : 'day';
     this.run = d.run || this.meta.runs || 1;        // 老存档没记局数，就按目前已开过的局算
     // 存档以后场景改过的话，位置可能卡在墙里：挪到最近能站的格子
@@ -467,11 +471,12 @@ class Game {
   }
 
   // 捡起某一格的东西。捡到了（或者弹出了「捡不捡」的询问）返回 true
-  pickUp(tx, ty) {
+  // mayAsk：只有走到旁边自动触发时才会问；玩家自己按 E 或者点它，就是直接捡
+  pickUp(tx, ty, mayAsk = false) {
     const s = this.cur, it = s.items.get(tx + ',' + ty);
     if (!it || this.taken.has(it.id)) return false;
     // 标了 ask 的东西，先问一句，玩家自己选捡还是不捡
-    if (it.ask) {
+    if (mayAsk && it.ask) {
       this.say([{ name: '', text: it.text, choices: [
         { label: T('选项.拾取'), onPick: g => g.takeItem(tx, ty, false) },
         { label: T('选项.放弃'), onPick: g => g.declined.add(it.id) },
@@ -493,7 +498,7 @@ class Game {
       if (i >= 0) s.props.splice(i, 1);
     }
     this.save();
-    const got = { name: '', text: `把「${it.name}」放进了书包。\n（按 I 可以看书包里的东西）` };
+    const got = { name: '', text: `拾取「${it.name}」。\n（按 I 可以看书包里的东西）` };
     this.say(showText ? [{ name: '', text: it.text }, got] : [got]);
     return true;
   }
@@ -509,7 +514,7 @@ class Game {
       touching = true;
       // 刚选过「放弃」的，站在旁边不再反复问；走开再回来才会重新问
       if (autoOnly && this.declined.has(it.id)) continue;
-      return this.pickUp(px0 + dx, py0 + dy);
+      return this.pickUp(px0 + dx, py0 + dy, autoOnly);
     }
     if (!touching) this.declined.clear();
     return false;

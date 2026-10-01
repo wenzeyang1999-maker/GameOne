@@ -135,12 +135,13 @@ function buildPrologue() {
   d.entries.start = { x: 11, y: 12, dir: 'up' };
 
   // 树（放在路两边，别挡住走的地方）
-  for (const [tx, ty, seed] of [[3, 4, 3], [5, 7, 7], [3, 11, 11], [17, 4, 4], [19, 8, 8], [17, 12, 12]]) {
+  const TREES = [[3, 4, 3], [5, 7, 7], [3, 11, 11], [17, 4, 4], [19, 8, 8], [17, 12, 12]];
+  TREES.forEach(([tx, ty, seed], i) => {
     const img = spriteTree(seed, 'sakura');
     d.props.push({ img, x: tx * 16 + 8 - img.width / 2, y: (ty + 1) * 16 - img.height, base: (ty + 1) * 16 - 1 });
     d.setSolid(tx, ty);
-    d.spot(tx, ty, '', T('prologue.樱花'));
-  }
+    d.spot(tx, ty, '', T(i % 2 ? 'prologue.樱花.2' : 'prologue.樱花.1'));   // 一半一半
+  });
 
   // 校牌（门柱上）
   for (const x of [GATE[0] - 1, GATE[1] + 1]) d.spot(x, 2, '', T('prologue.校牌'));
