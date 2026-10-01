@@ -15,7 +15,7 @@ const PW = 24, PH = 14;
 const ROAD_X0 = 9, ROAD_X1 = 14;     // 柏油路的范围
 const GATE = [11, 12];               // 校门（上墙）
 const GRANNY = [7, 8];               // 老奶奶站的位置
-const DROPPED = [6, 10];             // 散落在地上的东西
+const WALLET = [18, 11];             // 钱包掉的地方（答应帮忙之后才出现，在路对面）
 
 // ---------------- 美术 ----------------
 
@@ -61,16 +61,16 @@ function spriteGatePost() {
   return c;
 }
 
-// 散落在地上的东西：一个翻倒的布袋，旁边滚出去几样小东西
-function spriteDropped() {
-  const c = makeCanvas(20, 14), g = c.getContext('2d'), K = PAL.k;
-  px(g, K, 2, 4, 11, 9);                                                  // 布袋
-  px(g, '#8a7a5e', 3, 5, 9, 7); px(g, '#a6967a', 3, 5, 9, 2);
-  px(g, '#6a5c44', 4, 10, 7, 1);
-  px(g, K, 5, 2, 5, 3); px(g, '#6a5c44', 6, 3, 3, 1);                     // 袋口
-  for (const [x, y, col] of [[14, 8, '#c8743c'], [17, 10, '#c8743c'], [15, 11, '#9a9a4a']]) {
-    px(g, K, x, y, 3, 3); px(g, col, x, y, 2, 2);                         // 滚出去的小东西
-  }
+// 掉在草里的钱包：半开着，露出一角
+function spriteWallet() {
+  const c = makeCanvas(12, 9), g = c.getContext('2d'), K = PAL.k;
+  px(g, K, 0, 1, 12, 8);
+  px(g, '#6a3a2a', 1, 2, 10, 6);                                          // 皮面
+  px(g, '#8a5038', 1, 2, 10, 2);                                          // 受光的一面
+  px(g, '#4a2418', 1, 6, 10, 1);
+  px(g, '#c8a84a', 5, 4, 3, 2);                                           // 搭扣
+  px(g, '#e8e2d4', 2, 1, 4, 1);                                           // 露出来的一角
+  px(g, 'rgba(20,10,20,0.25)', 1, 8, 10, 1);
   return c;
 }
 
@@ -139,49 +139,61 @@ function buildPrologue() {
   // 路面
   for (const x of [ROAD_X0, ROAD_X1]) for (const y of [6, 9]) d.spot(x, y, '', T('prologue.路'));
 
-  // 地上散落的东西 —— 捡起来就算“帮了忙”
-  const dropped = spriteDropped();
-  d.props.push({ img: dropped, x: DROPPED[0] * 16 - 2, y: DROPPED[1] * 16 + 2, base: (DROPPED[1] + 1) * 16 - 1 });
-  d.item(DROPPED[0], DROPPED[1], {
-    id: 'granny_drop',
-    name: T('prologue.掉落.名字'),
-    desc: T('prologue.掉落.说明'),
-    text: T('prologue.掉落.捡起'),
-    color: '#8a7a5e',
-  });
+  // 校门一直开着 —— 可以不理老奶奶，直接去上学
+  for (const x of GATE) d.exit(x, 2, 'class2A', 'start');
 
-  // 校门：拿到撬棍之前过不去
-  for (const x of GATE) { d.setSolid(x, 2); d.spot(x, 2, '', T('prologue.校门.未完成')); }
+  // 指路的小箭头：一个指老奶奶，一个指校门，钱包出现之后也给一个
+  d.hints = [
+    { x: GRANNY[0], y: GRANNY[1], when: game => !game.flags.has('拿到撬棍') },
+    { x: GATE[0], y: 2 },
+    { x: WALLET[0], y: WALLET[1], when: game => game.flags.has('答应帮忙') && !game.bag.includes('wallet') },
+  ];
 
   d.npcs = [
     {
       name: '老奶奶', look: GRANNY_LOOK, x: GRANNY[0], y: GRANNY[1], dir: 'right', lines: [],
-      // 台词随进度变：还没捡 -> 求助；捡到了 -> 道谢并给撬棍；已经给过 -> 闲聊
       linesFor(game) {
+        // 已经给过礼物 -> 闲聊
         if (game.flags.has('拿到撬棍')) return [T('prologue.奶奶.之后')];
-        if (!game.bag.includes('granny_drop')) return [T('prologue.奶奶.求助1'), T('prologue.奶奶.求助2')];
-        return [T('prologue.奶奶.道谢'), T('prologue.奶奶.给前'), T('prologue.奶奶.给'), T('prologue.奶奶.给后')];
+        // 钱包找到了 -> 道谢、给礼物
+        if (game.bag.includes('wallet')) return [T('prologue.奶奶.道谢'), T('prologue.奶奶.给'), T('prologue.奶奶.给后')];
+        // 答应了还没找到 -> 催一下
+        if (game.flags.has('答应帮忙')) return [T('prologue.奶奶.还没找到')];
+        return [];   // 第一次说话走 pagesFor，有选项
       },
-      // 道谢那段说完，撬棍到手，校门放行
+      // 第一次搭话：求助 + 两个选择
+      pagesFor(game) {
+        if (game.flags.has('答应帮忙') || game.bag.includes('wallet') || game.flags.has('拿到撬棍')) return null;
+        return [
+          { name: '老奶奶', text: T('prologue.奶奶.求助') },
+          {
+            name: '老奶奶', text: T('prologue.奶奶.求助2'),
+            choices: [
+              { label: T('prologue.选项.帮'), onPick: game => {
+                game.flags.add('答应帮忙');
+                // 答应了，钱包这时才出现在草丛里
+                game.dropItem(WALLET[0], WALLET[1], {
+                  id: 'wallet', name: T('item.钱包.名字'), desc: T('item.钱包.说明'),
+                  text: T('item.钱包.捡起'), color: '#6a3a2a',
+                }, spriteWallet());
+                game.save();
+              } },
+              { label: T('prologue.选项.无视'), onPick: () => {} },
+            ],
+          },
+        ];
+      },
+      // 把钱包还给她 -> 收下钱包，给撬棍
       onTalk(game) {
-        if (game.flags.has('拿到撬棍') || !game.bag.includes('granny_drop')) return;
+        if (game.flags.has('拿到撬棍') || !game.bag.includes('wallet')) return;
         game.flags.add('拿到撬棍');
+        game.bag = game.bag.filter(id => id !== 'wallet');   // 钱包还回去了
         game.giveItem({
           id: 'crowbar', name: T('item.撬棍.名字'), desc: T('item.撬棍.说明'),
           text: T('item.撬棍.入手'), color: '#9a5a3a',
         });
-        openGate(game.cur);
       },
     },
   ];
   return d;
-}
-
-// 撬棍到手：校门从挡路变成出口
-function openGate(scene) {
-  for (const x of GATE) {
-    scene.setSolidAt(x, 2, 0);
-    scene.spots.delete(x + ',2');
-    scene.exits.set(x + ',2', { to: 'class2A', entry: 'start' });
-  }
 }

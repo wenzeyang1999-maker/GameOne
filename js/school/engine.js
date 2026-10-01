@@ -240,8 +240,13 @@ class Game {
     p.x = d.x; p.y = d.y; p.dir = d.dir || 'down';
     this.bag = d.bag || []; this.taken = new Set(d.taken || []);
     this.flags = new Set(d.flags || []);
-    // 读档回到序章时，撬棍已经拿过的话校门应该还是开的
-    if (this.cur.id === 'prologue' && this.flags.has('拿到撬棍')) openGate(this.cur);
+    // 读档回到序章：答应了却还没捡的话，钱包得重新放回草丛里
+    if (this.cur.id === 'prologue' && this.flags.has('答应帮忙') && !this.bag.includes('wallet')) {
+      this.dropItem(WALLET[0], WALLET[1], {
+        id: 'wallet', name: T('item.钱包.名字'), desc: T('item.钱包.说明'),
+        text: T('item.钱包.捡起'), color: '#6a3a2a',
+      }, spriteWallet());
+    }
     this.playerName = d.name || CHARACTERS[0].name;
     this.phase = d.phase === 'night' ? 'night' : 'day';
     this.run = d.run || this.meta.runs || 1;        // 老存档没记局数，就按目前已开过的局算
@@ -363,7 +368,9 @@ class Game {
   // 淡出 -> 换场景 -> 淡入
   goTo(id, entry) { if (!this.fading) this.fading = { id, entry, phase: 'out' }; }
 
-  say(pages) { this.dialog = { pages, i: 0, chars: 0, lines: null }; }
+  // pages: [{name, text, choices?}]
+  // choices = [{label, onPick(game)}]，挂在哪一页，就在那一页说完之后弹选项
+  say(pages) { this.dialog = { pages, i: 0, chars: 0, lines: null, pick: 0, optRects: null }; }
 
   // ---------------- 寻路（BFS，4 方向） ----------------
   findPath(from, targets) {
@@ -474,7 +481,9 @@ class Game {
       const dx = this.player.x - n.p.x, dy = this.player.y - n.p.y;
       n.p.dir = Math.abs(dx) > Math.abs(dy) ? (dx < 0 ? 'left' : 'right') : (dy < 0 ? 'up' : 'down');
       n.talking = true; n.p.moving = false;
-      // linesFor 让台词能随剧情进度变；没有就用固定的 lines
+      // pagesFor 可以带选项；linesFor 让台词随剧情进度变；都没有就用固定的 lines
+      const pages = n.pagesFor && n.pagesFor(this);
+      if (pages) { this.say(pages); return; }
       const lines = n.linesFor ? n.linesFor(this) : n.lines;
       this.say(lines.map(t => ({ name: n.name, text: t })));
       if (n.onTalk) n.onTalk(this);          // 说完这段要发生的事（给东西、开门……）
@@ -482,6 +491,19 @@ class Game {
     }
     const s = this.cur.spots.get(tx + ',' + ty);
     if (s) this.say([{ name: s.name, text: s.text }]);
+  }
+
+  endDialog() {
+    this.dialog = null;
+    for (const n of this.cur.people) if (n.talking) { n.talking = false; n.p.dir = n.home; }
+  }
+
+  // 剧情中途往场景里放一样能捡的东西
+  dropItem(tx, ty, it, img) {
+    const s = this.cur;
+    if (this.taken.has(it.id) || s.items.has(tx + ',' + ty)) return;
+    s.items.set(tx + ',' + ty, it);
+    if (img) s.props.push({ img, x: tx * 16 + 8 - img.width / 2, y: (ty + 1) * 16 - img.height, base: (ty + 1) * 16 - 1 });
   }
 
   // 直接塞进书包（剧情给的东西，不是从地上捡的）
@@ -552,14 +574,31 @@ class Game {
     }
     if (this.dialog) {
       p.moving = false;
-      const d = this.dialog, total = d.lines ? d.lines.join('').length : 999;
+      const d = this.dialog, page = d.pages[d.i], total = d.lines ? d.lines.join('').length : 999;
       d.chars = Math.min(total, d.chars + dt * 45);
+      const choosing = page.choices && d.chars >= total;
+
+      if (choosing) {
+        // 选项：上下键挪，Enter 确定，也可以直接点
+        if (hit('ArrowUp', 'KeyW')) d.pick = (d.pick + page.choices.length - 1) % page.choices.length;
+        if (hit('ArrowDown', 'KeyS')) d.pick = (d.pick + 1) % page.choices.length;
+        let confirmed = hit('KeyE', 'Enter', 'Space');
+        if (click && d.optRects) {
+          const i = d.optRects.findIndex(r => click[0] >= r[0] && click[0] <= r[0] + r[2] && click[1] >= r[1] && click[1] <= r[1] + r[3]);
+          if (i >= 0) { d.pick = i; confirmed = true; }
+        }
+        if (confirmed) {
+          const ch = page.choices[d.pick];
+          this.endDialog();
+          if (ch.onPick) ch.onPick(this);
+        }
+        return;
+      }
+
       if (hit('KeyE', 'Enter', 'Space') || click) {
         if (d.chars < total) d.chars = total;
-        else if (++d.i >= d.pages.length) {
-          this.dialog = null;
-          for (const n of s.people) if (n.talking) { n.talking = false; n.p.dir = n.home; }
-        } else { d.chars = 0; d.lines = null; }
+        else if (++d.i >= d.pages.length) this.endDialog();
+        else { d.chars = 0; d.lines = null; d.pick = 0; }
       }
       return;
     }
@@ -791,6 +830,19 @@ class Game {
     list.sort((a, b) => a.y - b.y);
     for (const it of list) it.draw();
 
+    // 指路的小箭头：场景里 hints 定义，when(game) 为真才显示
+    if (s.hints && !this.dialog) {
+      const bob = Math.floor(this.time * 3) % 2;
+      for (const h of s.hints) {
+        if (h.when && !h.when(this)) continue;
+        const X = h.x * 16 + 8 - cx, Y = h.y * 16 - 14 - cy - bob;
+        g.fillStyle = '#1a1428';
+        for (let k = 0; k < 6; k++) g.fillRect(X - 5 + k, Y + k, 11 - k * 2, 1);
+        g.fillStyle = '#ffd24a';
+        for (let k = 0; k < 5; k++) g.fillRect(X - 4 + k, Y + k, 9 - k * 2, 1);
+      }
+    }
+
     if (this.swing) this.drawSwing(g, cx, cy);
     for (const f of this.fx) { g.fillStyle = f.color; g.fillRect(Math.round(f.x - cx), Math.round(f.y - cy), 2, 2); }
     if (s.overlay) s.overlay(g, cx, cy, this.time);
@@ -846,6 +898,27 @@ class Game {
     }
     let left = Math.floor(d.chars);
     d.lines.forEach((ln, i) => { text(g, ln.slice(0, Math.max(0, left)), bx + 14, by + 10 + i * 15); left -= ln.length; });
+
+    // 选项：说完之后浮在对话框上方
+    if (page.choices && d.chars >= d.lines.join('').length) {
+      const ow = Math.max(120, ...page.choices.map(c => Math.round(textW(g, c.label)) + 44));
+      const oh = 20, oy0 = by - 8 - page.choices.length * oh, ox = bx + bw - ow - 10;
+      d.optRects = [];
+      page.choices.forEach((c, i) => {
+        const oy = oy0 + i * oh, on = i === d.pick;
+        d.optRects.push([ox, oy, ow, oh]);
+        panel(g, ox, oy, ow, oh, on ? '#5a4aa8' : '#2a3060', on ? '#3a2c78' : '#161a3c');
+        text(g, c.label, ox + 24, oy + 3, on ? '#ffe08a' : '#c8c4d8');
+        if (on) {   // 选中的那条前面一个小三角
+          g.fillStyle = '#ffd24a';
+          for (let k = 0; k < 4; k++) g.fillRect(ox + 11, oy + 6 + k, 1, Math.max(1, 7 - k * 2));
+          for (let k = 0; k < 4; k++) g.fillRect(ox + 11 + k, oy + 6 + k, 1, Math.max(1, 7 - k * 2));
+        }
+      });
+      return;
+    }
+    d.optRects = null;
+
     if (d.chars >= d.lines.join('').length && Math.floor(this.time * 3) % 2 === 0) {
       g.fillStyle = '#ffd24a';
       const ax = bx + bw - 16, ay = by + bh - 12;
