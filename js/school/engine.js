@@ -7,6 +7,9 @@ const VW = 384, VH = 216;
 const SAVE_KEY = 'school-save-v1';   // 自动存档：记住所在的场景和位置
 const FONT = '12px PixelFont, "PingFang SC", "Microsoft YaHei", sans-serif';
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+const PLAYER_MAX_HP = 10;          // 人类的血量。异形是这个的 3~10 倍
+const DMG_FIST = 3, DMG_CROWBAR = 7;   // 一下打掉多少血：空手 / 拿着撬棍
+const TRAIL_LIFE = 3, TRAIL_LIFE_BIG = 4.5;   // 异形黏液留多少秒（大滴久一点），再加 0~1.5 秒随机
 
 // ---------------- 画布 ----------------
 const canvas = document.getElementById('game');
@@ -212,6 +215,7 @@ class Game {
     this.declined = new Set();                   // 刚选过「放弃」的东西，走开之前不再问
     this.flags = new Set();                      // 剧情进度（'拿到撬棍' 等），存档带走
     this.monsters = []; this.fx = []; this.trail = []; this.swing = null; this.shake = 0;
+    this.hp = PLAYER_MAX_HP; this.hurtFlash = 0;    // 主角的血
     this.phase = 'day';                             // 时段：day 白天（没有怪）/ night 晚自习后（除教室外都锁）
     this.run = 0;                                   // 这是第几局，通关判彩蛋要用
     this.meta = loadMeta();                         // 跨周目进度，清档不动它
@@ -235,7 +239,7 @@ class Game {
         const it = ITEM_DB[id];
         if (it) itemDefs[id] = { name: it.name, desc: it.desc, color: it.color };
       }
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ scene: this.cur.id, x: p.x, y: p.y, dir: p.dir, name: this.playerName, bag: this.bag, itemDefs, taken: [...this.taken], flags: [...this.flags], phase: this.phase, run: this.run }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ scene: this.cur.id, x: p.x, y: p.y, dir: p.dir, name: this.playerName, bag: this.bag, itemDefs, taken: [...this.taken], flags: [...this.flags], phase: this.phase, run: this.run, hp: this.hp }));
     } catch (e) { /* 浏览器不让存（无痕模式等）就算了 */ }
   }
   restore() {
@@ -259,6 +263,7 @@ class Game {
       this.dropItem(WALLET[0], WALLET[1], walletItem(), spriteWallet());
     }
     this.phase = d.phase === 'night' ? 'night' : 'day';
+    this.hp = Math.max(1, Math.min(PLAYER_MAX_HP, d.hp || PLAYER_MAX_HP));
     this.run = d.run || this.meta.runs || 1;        // 老存档没记局数，就按目前已开过的局算
     // 存档以后场景改过的话，位置可能卡在墙里：挪到最近能站的格子
     const [tx, ty] = p.tile();
@@ -755,6 +760,24 @@ class Game {
   // 屏幕上方的小提示，1.5 秒后消失
   toast(t) { this.toastMsg = { t, life: 1.5 }; }
 
+  // 主角挨打
+  hurtPlayer(dmg = 1) {
+    if (this.hp <= 0) return;
+    this.hp = Math.max(0, this.hp - dmg);
+    this.hurtFlash = 0.35;
+    if (this.hp <= 0) this.knockOut();
+  }
+
+  // 血空了：眼前一黑，怪物散掉，回满血站回入口
+  // （先放一个最简单的版本，以后要加惩罚/结局改这里）
+  knockOut() {
+    this.monsters = []; this.path = null; this.goal = null;
+    this.hp = PLAYER_MAX_HP;
+    this.shake = 0.5;
+    this.toast('眼前一黑……');
+    this.save();
+  }
+
   knockPlayer(vx, vy) {
     this.path = null; this.goal = null;
     this.playerKnock = { vx, vy, t: 0.22 };
@@ -774,7 +797,7 @@ class Game {
       if (!overlaps(box, m.box())) continue;
       hitAny = true;
       // 撬棍只是打得更疼，没有也能打
-      m.hurt(dx * 190 + (dx ? 0 : (m.x - p.x) * 2), dy * 190 + (dy ? 0 : (m.y - p.y) * 2), this.bag.includes('crowbar') ? 2 : 1);
+      m.hurt(dx * 190 + (dx ? 0 : (m.x - p.x) * 2), dy * 190 + (dy ? 0 : (m.y - p.y) * 2), this.bag.includes('crowbar') ? DMG_CROWBAR : DMG_FIST);
       this.burst(m.x, m.y - 10, '#b8e0ff', 10);
       this.shake = 0.12;
       if (m.dead) this.burst(m.x, m.y - 10, '#6a7a9a', 18);
@@ -787,7 +810,8 @@ class Game {
     const big = Math.random() < 0.3;                       // 偶尔滴一大滴
     this.trail.push({
       x: x + (Math.random() - 0.5) * 8, y: y - 1 + (Math.random() - 0.5) * 4,
-      t: 0, life: (big ? 12 : 9) + Math.random() * 3, r: big ? 3 + Math.round(Math.random()) : 2,
+      t: 0, life: (big ? TRAIL_LIFE_BIG : TRAIL_LIFE) + Math.random() * 1.5,
+      r: big ? 3 + Math.round(Math.random()) : 2,
     });
     if (this.trail.length > 90) this.trail.shift();
   }
@@ -802,6 +826,7 @@ class Game {
   updateCombat(dt) {
     if (this.toastMsg && (this.toastMsg.life -= dt) <= 0) this.toastMsg = null;
     if (this.swing && (this.swing.t += dt) > 0.22) this.swing = null;
+    if (this.hurtFlash > 0) this.hurtFlash -= dt;
     this.shake = Math.max(0, this.shake - dt);
     if (this.playerKnock) {                       // 玩家被撞退
       const k = this.playerKnock, p = this.player;
@@ -910,6 +935,8 @@ class Game {
     for (const f of this.fx) { g.fillStyle = f.color; g.fillRect(Math.round(f.x - cx), Math.round(f.y - cy), 2, 2); }
     if (s.overlay) s.overlay(g, cx, cy, this.time);
 
+    this.drawHp(g);
+
     // 地点名：进场时显示几秒后淡出
     const la = Math.max(0, Math.min(1, this.enterTime + 3.5 - this.time));
     if (la > 0) {
@@ -931,6 +958,30 @@ class Game {
     else if (this.dialog) this.drawDialog(g);
     if (this.fade > 0) { g.fillStyle = `rgba(10,8,20,${this.fade})`; g.fillRect(0, 0, VW, VH); }
   }
+
+  // 左上角的血条。平时不显示 —— 有怪的时候显示，晚上一直显示
+  drawHp(g) {
+    if (this.phase !== 'night' && !this.monsters.length) return;
+    const n = PLAYER_MAX_HP, cw = 6, x = 6, y = this.locNameShowing() ? 26 : 6;
+    const w = 20 + n * cw + 4;
+    panel(g, x, y, w, 16);
+    text(g, 'HP', x + 5, y + 2, this.hp <= 3 ? '#ff8a7a' : '#ffe08a');
+    const blink = this.hp <= 3 && Math.floor(this.time * 5) % 2;      // 残血闪一闪
+    for (let i = 0; i < n; i++) {
+      const bx = x + 22 + i * cw;
+      g.fillStyle = '#140f22'; g.fillRect(bx, y + 4, cw - 1, 8);
+      if (i >= this.hp) continue;
+      g.fillStyle = blink ? '#ffd0c8' : (this.hp <= 3 ? '#e0503c' : '#d4443c');
+      g.fillRect(bx + 1, y + 5, cw - 3, 6);
+      g.fillStyle = 'rgba(255,255,255,0.35)'; g.fillRect(bx + 1, y + 5, cw - 3, 1);
+    }
+    // 挨打的瞬间整个屏幕红一下
+    if (this.hurtFlash > 0) {
+      g.fillStyle = `rgba(200,40,40,${Math.max(0, this.hurtFlash) * 0.45})`;
+      g.fillRect(0, 0, VW, VH);
+    }
+  }
+  locNameShowing() { return this.enterTime + 3.5 - this.time > 0; }
 
   // 书包
   drawBag(g) {

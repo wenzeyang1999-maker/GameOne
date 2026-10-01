@@ -114,11 +114,14 @@ function buildAlienFrames() {
 }
 
 class Monster {
-  constructor(tx, ty) {
+  // 血量是人类的 3~10 倍（每只随机），所以一只异形是真的难打
+  constructor(tx, ty, playerMax = PLAYER_MAX_HP) {
     this.frames = buildAlienFrames();
     this.x = tx * 16 + 8; this.y = ty * 16 + 12;
     this.dir = 'left'; this.animT = 0; this.moving = false;
-    this.hp = 3; this.stun = 0; this.flash = 0; this.hitCool = 0;
+    this.mult = 3 + Math.floor(Math.random() * 8);          // 3~10 倍
+    this.maxHp = playerMax * this.mult;
+    this.hp = this.maxHp; this.stun = 0; this.flash = 0; this.hitCool = 0;
     this.kx = 0; this.ky = 0;                          // 被打退时的速度
     this.dead = false;
   }
@@ -161,6 +164,7 @@ class Monster {
       this.hitCool = 1.2;
       const d = Math.hypot(dx, dy) || 1;
       game.knockPlayer(-dx / d * 130, -dy / d * 130);
+      game.hurtPlayer(1);
     }
   }
 
@@ -182,11 +186,12 @@ class Monster {
       g.drawImage(img, X, Y); g.drawImage(img, X, Y);
       g.restore();
     }
-    // 血条
-    if (this.hp < 3) {
-      const bx = Math.round(this.x - 8 - cx), by = Y - 3;
-      g.fillStyle = '#1a1420'; g.fillRect(bx, by, 16, 3);
-      g.fillStyle = '#d4443c'; g.fillRect(bx + 1, by + 1, Math.round(14 * this.hp / 3), 1);
+    // 血条：掉过血才显示。条子按倍数变长，越肥的异形条越长
+    if (this.hp < this.maxHp) {
+      const w = Math.min(34, 12 + this.mult * 2), bx = Math.round(this.x - w / 2 - cx), by = Y - 4;
+      g.fillStyle = '#1a1420'; g.fillRect(bx, by, w, 4);
+      g.fillStyle = '#3a1a20'; g.fillRect(bx + 1, by + 1, w - 2, 2);
+      g.fillStyle = '#d4443c'; g.fillRect(bx + 1, by + 1, Math.round((w - 2) * this.hp / this.maxHp), 2);
     }
   }
 }
