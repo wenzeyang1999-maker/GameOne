@@ -276,6 +276,7 @@ class Game {
   resetGame() {
     this.bag = []; this.taken = new Set(); this.flags = new Set();
     this.phase = 'day';
+    this.scenes = {};   // 场景会被剧情改（捡走的东西、开过的门），重开一局得重新建
     // 只清这一局：META_KEY 不动，不然跨周目的进度和彩蛋就白攒了
     try { localStorage.removeItem(SAVE_KEY); } catch (e) { /* 忽略 */ }
     this.mode = 'select'; this.pick = 0; this.dialog = null; this.fading = null; this.fade = 0;
@@ -472,6 +473,12 @@ class Game {
     const it = this.cur.items.get(tx + ',' + ty);
     if (it && !this.taken.has(it.id)) {
       this.taken.add(it.id); this.bag.push(it.id); ITEM_DB[it.id] = it;
+      // 捡走了就从场上消失：地上那一格、以及它自己那张图
+      this.cur.items.delete(tx + ',' + ty);
+      if (it.prop) {
+        const i = this.cur.props.indexOf(it.prop);
+        if (i >= 0) this.cur.props.splice(i, 1);
+      }
       this.save();
       this.say([{ name: '', text: it.text }, { name: '', text: `把「${it.name}」放进了书包。\n（按 I 可以看书包里的东西）` }]);
       return;
@@ -484,8 +491,9 @@ class Game {
       // pagesFor 可以带选项；linesFor 让台词随剧情进度变；都没有就用固定的 lines
       const pages = n.pagesFor && n.pagesFor(this);
       if (pages) { this.say(pages); return; }
+      // 一句可以是字符串（默认这个 NPC 说的），也可以是 {name, text} 指定说话的人
       const lines = n.linesFor ? n.linesFor(this) : n.lines;
-      this.say(lines.map(t => ({ name: n.name, text: t })));
+      this.say(lines.map(t => (typeof t === 'string' ? { name: n.name, text: t } : t)));
       if (n.onTalk) n.onTalk(this);          // 说完这段要发生的事（给东西、开门……）
       return;
     }
@@ -503,7 +511,11 @@ class Game {
     const s = this.cur;
     if (this.taken.has(it.id) || s.items.has(tx + ',' + ty)) return;
     s.items.set(tx + ',' + ty, it);
-    if (img) s.props.push({ img, x: tx * 16 + 8 - img.width / 2, y: (ty + 1) * 16 - img.height, base: (ty + 1) * 16 - 1 });
+    if (img) {
+      // 记住这张图，捡走的时候要把它从画面上删掉
+      it.prop = { img, x: tx * 16 + 8 - img.width / 2, y: (ty + 1) * 16 - img.height, base: (ty + 1) * 16 - 1 };
+      s.props.push(it.prop);
+    }
   }
 
   // 直接塞进书包（剧情给的东西，不是从地上捡的）

@@ -155,8 +155,12 @@ function buildPrologue() {
       linesFor(game) {
         // 已经给过礼物 -> 闲聊
         if (game.flags.has('拿到撬棍')) return [T('prologue.奶奶.之后')];
-        // 钱包找到了 -> 道谢、给礼物
-        if (game.bag.includes('wallet')) return [T('prologue.奶奶.道谢'), T('prologue.奶奶.给'), T('prologue.奶奶.给后')];
+        // 钱包找到了 -> 道谢、给礼物，最后 Miss Ren 自己一句
+        if (game.bag.includes('wallet')) return [
+          T('prologue.奶奶.道谢'),
+          T('prologue.奶奶.给'),
+          { name: game.playerName, text: T('prologue.ren.收下') },
+        ];
         // 答应了还没找到 -> 催一下
         if (game.flags.has('答应帮忙')) return [T('prologue.奶奶.还没找到')];
         return [];   // 第一次说话走 pagesFor，有选项
