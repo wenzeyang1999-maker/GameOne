@@ -11,12 +11,20 @@ const PLAYER_MAX_HP = 10;          // 人类的血量。异形是这个的 3~10 
 const DMG_FIST = 3, DMG_CROWBAR = 7;   // 一下打掉多少血：空手 / 拿着撬棍
 const SLOW_FLOOR = 0.5;            // 血见底时最慢能慢到原速的多少（界面上不显示，靠手感察觉）
 
-// 暴露值：界面上完全不显示。走动、开门、翻东西都会积累，
-// 攒满了就会有一只异形摸到附近来。站着不动会慢慢回落
+// 暴露值：界面上完全不显示，而且只增不减 —— 走动涨得快，站着不动也在涨，
+// 翻东西、撬锁涨一大截。攒满了就会有一只异形摸到附近来。
+// 唯一能让它下降的，是被追的时候换一张没去过的地图（见 mapEscape）
 const EXPOSURE_MAX = 100;
 const EXP_MOVE = 7;        // 走动每秒
-const EXP_CALM = -2.5;     // 站着不动每秒回落
+const EXP_IDLE = 2.5;      // 站着不动每秒 —— 也是涨的，只是慢一些。躲是躲不掉的
 const EXP_ACT = 3;         // 调查、捡东西、挥一下
+// 正常走过去开门是不响的，但是弄锁一定会惊动什么东西
+const EXP_UNLOCK = 20;     // 拿钥匙开锁：钥匙串、锁芯转动的声音
+const EXP_PRY = 45;        // 撬锁：撬棍别门缝、木头裂开，整条走廊都听得见
+// 异形会推门跟进来
+const FOLLOW_DIST = 120;   // 过门的那一刻，离你这么近的异形会跟过来
+const FOLLOW_DELAY = 2.6;  // 跟进来之前的那几秒 —— 门背后传来声音的时间
+const EXP_FOLLOW = 50;     // 被跟进一道门，暴露值直接 +50
 const MAX_LURKERS = 3;     // 场上最多同时有几只是暴露刷出来的
 // 刷出异形之后暴露值不会清零，只会掉一截 —— 危险是会一直跟着你的。
 // 真正甩掉它的办法是换地图：每到一张「这轮还没去过的」新图扣一半，
@@ -234,6 +242,7 @@ class Game {
     this.exposure = 0;                              // 暴露值，玩家看不见
     this.spawnCool = 0;                             // 刚刷过怪的冷却
     this.fresh = new Set();                         // 这一轮已经躲过的地图，再去就不扣了
+    this.pendingFollow = [];                        // 正在推门跟进来的异形
     this.phase = 'day';                             // 时段：day 白天（没有怪）/ night 晚自习后（除教室外都锁）
     this.run = 0;                                   // 这是第几局，通关判彩蛋要用
     this.meta = loadMeta();                         // 跨周目进度，清档不动它
@@ -397,11 +406,48 @@ class Game {
     this.player.moving = false;
     this.path = null; this.goal = null; this.marker = null;
     this.monsters = []; this.fx = []; this.trail = []; this.swing = null;   // 怪物只待在当前场景
+    this.entryName = entry;                 // 记住是从哪道门进来的，跟过来的异形从这里推门
     this.enterTime = this.time;
     this.save();
   }
   // 淡出 -> 换场景 -> 淡入
-  goTo(id, entry) { if (!this.fading) { this.mapEscape(id); this.fading = { id, entry, phase: 'out' }; } }
+  // 关门那一刻贴得近的异形会跟过来 —— 所以「马上跑」才甩得掉，
+  // 走走停停就等于一路把它带进下一张图
+  goTo(id, entry) {
+    if (this.fading) return;
+    const p = this.player;
+    const chasing = this.monsters.filter(m => Math.hypot(m.x - p.x, m.y - p.y) < FOLLOW_DIST);
+    this.mapEscape(id);
+    // 带着它的血量一起过去：是同一只，刚才打掉的血还在
+    // 还在门后没进来的那只不会凭空消失，它会接着追到下一张图
+    const carry = this.pendingFollow.map(f => ({ ...f, t: FOLLOW_DELAY }));
+    this.pendingFollow = carry.concat(chasing.map(m => ({ hp: m.hp, maxHp: m.maxHp, mult: m.mult, t: FOLLOW_DELAY }))).slice(0, 2);
+    this.fading = { id, entry, phase: 'out' };
+  }
+
+  // 门背后的声音到了：异形从你进来的那道门推进来
+  releaseFollowers(dt) {
+    if (!this.pendingFollow.length) return;
+    const e = this.cur.entries[this.entryName] || {};
+    for (const f of this.pendingFollow) f.t -= dt;
+    const arrived = this.pendingFollow.filter(f => f.t <= 0);
+    this.pendingFollow = this.pendingFollow.filter(f => f.t > 0);
+    for (const f of arrived) {
+      // 从你进来的那道门推进来。要是你还杵在门口没动，就挤到旁边一格
+      const [ptx, pty] = this.player.tile();
+      let spot = (e.x != null && !this.cur.isSolid(e.x, e.y)) ? [e.x, e.y] : this.nearestFree(e.x || 1, e.y || 1);
+      if (spot && spot[0] === ptx && spot[1] === pty) {
+        spot = [[0, -1], [-1, 0], [1, 0], [0, 1]].map(([dx, dy]) => [spot[0] + dx, spot[1] + dy])
+          .find(([x, y]) => !this.cur.isSolid(x, y)) || spot;
+      }
+      if (!spot) spot = this.player.tile();
+      const m = new Monster(spot[0], spot[1]);
+      m.mult = f.mult; m.maxHp = f.maxHp; m.hp = f.hp;
+      this.monsters.push(m);
+      this.addExposure(EXP_FOLLOW);                 // 被跟进一道门，代价很大
+      this.shake = 0.3;
+    }
+  }
 
   // pages: [{name, text, choices?}]
   // choices = [{label, onPick(game)}]，挂在哪一页，就在那一页说完之后弹选项
@@ -795,9 +841,21 @@ class Game {
     this.fresh.clear();                            // 重新开始数「躲过几张图」
   }
 
+  // 弄锁。kind: 'key' 用钥匙开 / 'pry' 用撬棍撬。
+  // 正常推开一扇没锁的门不走这里，所以不会涨暴露值
+  breakLock(kind = 'key') {
+    this.addExposure(kind === 'pry' ? EXP_PRY : EXP_UNLOCK);
+    if (kind === 'pry') { this.shake = 0.25; this.burst(this.player.x, this.player.y - 8, '#c8b89a', 8); }
+  }
+
+  // 正在被盯上吗（场上有异形，或者有异形正在门后往这边来）
+  hunted() { return this.monsters.length > 0 || this.pendingFollow.length > 0; }
+
   // 换地图：到一张这轮还没躲过的图，暴露值掉一大截（两张图就清零）
+  // 只有正在被追的时候才算「甩掉」—— 没异形的时候过门什么也不减，
+  // 暴露值只增不减，攒满了迟早会有东西找上来
   mapEscape(id) {
-    if (this.phase !== 'night' || this.fresh.has(id)) return;
+    if (this.phase !== 'night' || this.fresh.has(id) || !this.hunted()) return;
     this.fresh.add(id);
     this.exposure = Math.max(0, this.exposure - EXPOSURE_MAX * EXP_NEW_MAP);
   }
@@ -893,7 +951,10 @@ class Game {
     if (this.hurtFlash > 0) this.hurtFlash -= dt;
     // 走动会暴露自己，站着不动慢慢平息下去
     if (this.spawnCool > 0) this.spawnCool -= dt;
-    if (!this.dialog && !this.fading) this.addExposure((this.player.moving ? EXP_MOVE : EXP_CALM) * dt);
+    this.releaseFollowers(dt);
+    if (!this.dialog && !this.fading) {
+      this.addExposure((this.player.moving ? EXP_MOVE : EXP_IDLE) * dt);
+    }
     this.shake = Math.max(0, this.shake - dt);
     if (this.playerKnock) {                       // 玩家被撞退
       const k = this.playerKnock, p = this.player;

@@ -1,6 +1,5 @@
 {
   "permissions": {
-    "defaultMode": "acceptEdits",
     "allow": [
       "Edit(js/**)",
       "Edit(*.html)",
@@ -28,7 +27,12 @@
       "Bash(tail:*)",
       "Bash(sed -n:*)",
       "Bash(file:*)",
-      "Bash(du:*)"
+      "Bash(du:*)",
+      "Bash(node shot4.mjs '[ *)",
+      "Bash(npm i *)",
+      "Bash(curl -s -o /dev/null -w \"server:%{http_code}\\\\n\" http://localhost:8000/school.html)",
+      "Bash(sed -i '' 's/const s = game.cur, k = 40 \\\\* dt;/const s = game.cur, k = AL_PUSH * dt;/' js/school/combat.js)",
+      "Bash(sed -i '' 's/^const AL_RING = 15;.*/const AL_RING = 15;         \\\\/\\\\/ 合围半径：各自站在玩家周围这么远的一圈上\\\\nconst AL_PUSH = 80;         \\\\/\\\\/ 互相推开的力度。要压得住扑上来的速度，不然还是会挤成一团/' js/school/combat.js)"
     ],
     "deny": [
       "Bash(rm -rf:*)",
@@ -37,6 +41,7 @@
       "Bash(git reset --hard:*)",
       "Bash(git clean -fd:*)",
       "Bash(git checkout --:*)"
-    ]
+    ],
+    "defaultMode": "acceptEdits"
   }
 }

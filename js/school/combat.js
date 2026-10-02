@@ -30,6 +30,9 @@ const AL_RUSH_AT = 48;
 const AL_AGGRO = 170;       // 多远开始追
 const AL_BITE = [0.2, 0.25];   // 咬一口掉玩家最大血的 1/5 ~ 1/4
 const AL_BITE_COOL = 1.2;
+const AL_APART = 15;        // 两只异形之间至少隔这么远，再近就互相推开
+const AL_RING = 15;         // 合围半径：各自站在玩家周围这么远的一圈上
+const AL_PUSH = 80;         // 互相推开的力度。要压得住扑上来的速度，不然还是会挤成一团
 
 // 画一条折起来的腿：胯 -> 膝（抬得比背还高）-> 爪。细一点，和身体分得开
 function alienLeg(g, hx, hy, kx, ky, fx, fy) {
@@ -154,18 +157,23 @@ class Monster {
     }
     if (this.stun > 0) { this.stun -= dt; return; }
 
-    // 追玩家
-    const dx = p.x - this.x, dy = p.y - this.y, dist = Math.hypot(dx, dy);
+    // 已经挤在一起的先分开（不然新来的会直接叠上去）
+    this.separate(game, dt);
+
+    // 追玩家。不是都扑向正中，各自认领一个方位，围成一圈
+    const [ax0, ay0] = this.aimAt(game, p);
+    const dx = ax0 - this.x, dy = ay0 - this.y;
+    const dist = Math.hypot(p.x - this.x, p.y - this.y);
     if (dist > AL_AGGRO) return;
     // 远远地逼近，到了够得着的距离就扑上来
     const sp = (dist < AL_RUSH_AT ? AL_RUSH : AL_SPEED) * dt;
     let mx = 0, my = 0;
     if (Math.abs(dx) > 3) mx = Math.sign(dx) * Math.min(sp, Math.abs(dx));
     if (Math.abs(dy) > 3) my = Math.sign(dy) * Math.min(sp, Math.abs(dy));
-    const step = (ax, ay) => {
+    const step = (bx, by) => {
       let ok = false;
-      if (ax && !s.rectBlocked(this.box(this.x + ax, this.y), null, this.box())) { this.x += ax; ok = true; }
-      if (ay && !s.rectBlocked(this.box(this.x, this.y + ay), null, this.box())) { this.y += ay; ok = true; }
+      if (bx && this.canGo(game, this.x + bx, this.y)) { this.x += bx; ok = true; }
+      if (by && this.canGo(game, this.x, this.y + by)) { this.y += by; ok = true; }
       return ok;
     };
 
@@ -217,6 +225,59 @@ class Monster {
       const f = AL_BITE[0] + Math.random() * (AL_BITE[1] - AL_BITE[0]);
       game.hurtPlayer(Math.max(1, Math.round(PLAYER_MAX_HP * f)));
     }
+  }
+
+  // 能不能挪到这个位置：墙、NPC，还有别的异形
+  // 已经和某只叠在一起时不算它挡路，否则两只叠住就谁也动不了，永远分不开
+  canGo(game, nx, ny) {
+    const s = game.cur, nb = this.box(nx, ny);
+    if (s.rectBlocked(nb, null, this.box())) return false;
+    const cur = this.box();
+    for (const m of game.monsters) {
+      if (m === this || m.dead) continue;
+      if (overlaps(nb, m.box()) && !overlaps(cur, m.box())) return false;
+    }
+    return true;
+  }
+
+  // 已经叠在一起的，慢慢推开。靠它化解「同时冲进同一个格子」造成的重叠
+  separate(game, dt) {
+    let ox = 0, oy = 0;
+    for (const m of game.monsters) {
+      if (m === this || m.dead) continue;
+      let dx = this.x - m.x, dy = this.y - m.y;
+      let d = Math.hypot(dx, dy);
+      if (d >= AL_APART) continue;
+      if (d < 0.01) {                       // 完全重合，随便挑个方向推
+        const a = Math.random() * Math.PI * 2;
+        dx = Math.cos(a); dy = Math.sin(a); d = 1;
+      }
+      const push = (AL_APART - d) / AL_APART;
+      ox += dx / d * push; oy += dy / d * push;
+    }
+    if (!ox && !oy) return;
+    const s = game.cur, k = AL_PUSH * dt;
+    const nx = this.x + ox * k, ny = this.y + oy * k;
+    if (!s.rectBlocked(this.box(nx, this.y), null, this.box())) this.x = nx;
+    if (!s.rectBlocked(this.box(this.x, ny), null, this.box())) this.y = ny;
+  }
+
+  // 合围：按各自现在所处的方位，在玩家周围分一圈落脚点，而不是都扑向正中。
+  // 用「现在的方位」排序而不是固定编号，这样谁在哪边就守哪边，不会绕着玩家跑一圈去换位
+  aimAt(game, p) {
+    const live = game.monsters.filter(m => !m.dead);
+    if (live.length <= 1) return [p.x, p.y];
+    const ang = m => Math.atan2(m.y - p.y, m.x - p.x);
+    const order = live.slice().sort((a, b) => ang(a) - ang(b));
+    const i = order.indexOf(this);
+    if (i < 0) return [p.x, p.y];
+    // 一圈均分，以排在最前面那只的方位为起点，各自认领一份
+    const n = live.length;
+    // 数量多了这一圈就得撑大，否则站不下还是会挤在一起：
+    // 相邻两只的直线距离是 2R·sin(π/n)，让它不小于 AL_APART
+    const R = Math.max(AL_RING, AL_APART / (2 * Math.sin(Math.PI / n)));
+    const slot = ang(order[0]) + (i / n) * Math.PI * 2;
+    return [p.x + Math.cos(slot) * R, p.y + Math.sin(slot) * R];
   }
 
   // 到玩家之间是不是一条直路（沿途每隔 8px 试一下身子放不放得下）
