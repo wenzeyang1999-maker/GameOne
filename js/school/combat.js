@@ -33,6 +33,8 @@ const AL_BITE_COOL = 1.2;
 const AL_APART = 15;        // 两只异形之间至少隔这么远，再近就互相推开
 const AL_RING = 15;         // 合围半径：各自站在玩家周围这么远的一圈上
 const AL_PUSH = 80;         // 互相推开的力度。要压得住扑上来的速度，不然还是会挤成一团
+const AL_MIN_ANGLE = Math.PI / 6;   // 两只异形在玩家周围至少错开 30 度
+let AL_SEQ = 0;             // 出生序号，只用来给「正好重合」的两只定个先后
 
 // 画一条折起来的腿：胯 -> 膝（抬得比背还高）-> 爪。细一点，和身体分得开
 function alienLeg(g, hx, hy, kx, ky, fx, fy) {
@@ -136,6 +138,7 @@ class Monster {
     this.hp = this.maxHp; this.stun = 0; this.flash = 0; this.hitCool = 0;
     this.kx = 0; this.ky = 0;                          // 被打退时的速度
     this.dead = false;
+    this.seq = ++AL_SEQ;                               // 只用来给「方位正好重合」的两只定个先后
   }
   // 14px 宽：必须窄于一格（16px），否则站在格子正中时左右各探出 1px 到隔壁，
   // 一格宽的过道就永远挤不过去，寻路算出来的路也走不通
@@ -240,8 +243,12 @@ class Monster {
     return true;
   }
 
-  // 已经叠在一起的，慢慢推开。靠它化解「同时冲进同一个格子」造成的重叠
+  // 挤在一起的互相推开。推的方向主要是「绕着玩家转」而不是「往外退」——
+  // 这样它们是在玩家周围挪开站位（角度拉开），而不是被挤到更远的地方。
+  // 不能靠 aimAt 里改角度来拉开：在半径 15 的圈上十几度只有两三个像素，
+  // 会被移动的死区（小于 3px 不动）吃掉，永远收敛不了
   separate(game, dt) {
+    const p = game.player;
     let ox = 0, oy = 0;
     for (const m of game.monsters) {
       if (m === this || m.dead) continue;
@@ -256,28 +263,39 @@ class Monster {
       ox += dx / d * push; oy += dy / d * push;
     }
     if (!ox && !oy) return;
+    // 拆成「绕圈」和「往外」两个分量，绕圈的留全部，往外的只留一点点
+    // （留一点是为了圈上实在站不下时能往外撑开）
+    const rx = this.x - p.x, ry = this.y - p.y, rd = Math.hypot(rx, ry) || 1;
+    const ux = rx / rd, uy = ry / rd;                    // 径向（背对玩家）
+    const tx = -uy, ty = ux;                             // 切向（绕着玩家）
+    const tang = ox * tx + oy * ty, radial = ox * ux + oy * uy;
+    ox = tx * tang + ux * radial * 0.25;
+    oy = ty * tang + uy * radial * 0.25;
+
     const s = game.cur, k = AL_PUSH * dt;
     const nx = this.x + ox * k, ny = this.y + oy * k;
     if (!s.rectBlocked(this.box(nx, this.y), null, this.box())) this.x = nx;
     if (!s.rectBlocked(this.box(this.x, ny), null, this.box())) this.y = ny;
   }
 
-  // 合围：按各自现在所处的方位，在玩家周围分一圈落脚点，而不是都扑向正中。
-  // 用「现在的方位」排序而不是固定编号，这样谁在哪边就守哪边，不会绕着玩家跑一圈去换位
+  // 合围：各自就站在自己当前所处的方位上，不强行均分成 0/90/180/270。
+  // 只有和别人挤得太近（小于 AL_MIN_ANGLE）时才往旁边让开一点，
+  // 所以谁从哪边来就守哪边，走的是最近的位置
   aimAt(game, p) {
     const live = game.monsters.filter(m => !m.dead);
     if (live.length <= 1) return [p.x, p.y];
-    const ang = m => Math.atan2(m.y - p.y, m.x - p.x);
-    const order = live.slice().sort((a, b) => ang(a) - ang(b));
-    const i = order.indexOf(this);
-    if (i < 0) return [p.x, p.y];
-    // 一圈均分，以排在最前面那只的方位为起点，各自认领一份
-    const n = live.length;
-    // 数量多了这一圈就得撑大，否则站不下还是会挤在一起：
-    // 相邻两只的直线距离是 2R·sin(π/n)，让它不小于 AL_APART
-    const R = Math.max(AL_RING, AL_APART / (2 * Math.sin(Math.PI / n)));
-    const slot = ang(order[0]) + (i / n) * Math.PI * 2;
-    return [p.x + Math.cos(slot) * R, p.y + Math.sin(slot) * R];
+    const norm = d => { while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; };
+    let a = Math.atan2(this.y - p.y, this.x - p.x);          // 自己现在在玩家的哪个方位
+    for (const m of live) {
+      if (m === this) continue;
+      const d = norm(a - Math.atan2(m.y - p.y, m.x - p.x));
+      if (Math.abs(d) >= AL_MIN_ANGLE) continue;
+      // 挤到一起了：往离开对方的那一侧让，让够 30 度为止
+      // 正好重合（d=0）时没有方向可言，用出生序号定谁往哪边，免得两只往同一边让
+      const sign = d === 0 ? (this.seq < m.seq ? -1 : 1) : Math.sign(d);
+      a += sign * (AL_MIN_ANGLE - Math.abs(d));
+    }
+    return [p.x + Math.cos(a) * AL_RING, p.y + Math.sin(a) * AL_RING];
   }
 
   // 到玩家之间是不是一条直路（沿途每隔 8px 试一下身子放不放得下）

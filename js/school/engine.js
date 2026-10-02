@@ -22,6 +22,11 @@ const EXP_ACT = 3;         // 调查、捡东西、挥一下
 const EXP_UNLOCK = 20;     // 拿钥匙开锁：钥匙串、锁芯转动的声音
 const EXP_PRY = 45;        // 撬锁：撬棍别门缝、木头裂开，整条走廊都听得见
 // 异形会推门跟进来
+// 强制刷新：跟暴露值无关，夜里每隔一段时间一定会来一只。
+// 就算你一动不动躲在角落里，它也会找过来
+const FORCE_EVERY = 110;   // 平均多少秒一只
+const FORCE_JITTER = 40;   // 上下浮动，免得玩家掐着表走
+
 const FOLLOW_DIST = 120;   // 过门的那一刻，离你这么近的异形会跟过来
 const FOLLOW_DELAY = 2.6;  // 跟进来之前的那几秒 —— 门背后传来声音的时间
 const EXP_FOLLOW = 50;     // 被跟进一道门，暴露值直接 +50
@@ -33,6 +38,7 @@ const EXP_AFTER_SPAWN = 0.7;      // 刷完之后留下的比例
 const EXP_SPAWN_COOL = 15;        // 刷完之后多少秒内不会再刷
 const EXP_NEW_MAP = 0.5;          // 每到一张新图扣掉最大值的多少
 const TRAIL_LIFE = 3, TRAIL_LIFE_BIG = 4.5;   // 异形黏液留多少秒（大滴久一点），再加 0~1.5 秒随机
+const SWING_SPLASH = 9;      // 一刀砍中第二只的条件：它离挥击中心不超过这么近（调大=更容易一刀两只）
 
 // ---------------- 画布 ----------------
 const canvas = document.getElementById('game');
@@ -243,6 +249,7 @@ class Game {
     this.spawnCool = 0;                             // 刚刷过怪的冷却
     this.fresh = new Set();                         // 这一轮已经躲过的地图，再去就不扣了
     this.pendingFollow = [];                        // 正在推门跟进来的异形
+    this.forceT = FORCE_EVERY;                      // 下一次强制刷新的倒计时
     this.phase = 'day';                             // 时段：day 白天（没有怪）/ night 晚自习后（除教室外都锁）
     this.run = 0;                                   // 这是第几局，通关判彩蛋要用
     this.meta = loadMeta();                         // 跨周目进度，清档不动它
@@ -408,6 +415,7 @@ class Game {
     this.monsters = []; this.fx = []; this.trail = []; this.swing = null;   // 怪物只待在当前场景
     this.entryName = entry;                 // 记住是从哪道门进来的，跟过来的异形从这里推门
     this.enterTime = this.time;
+    this.sceneAmbush();                     // 有些地方是进去就一定出事的
     this.save();
   }
   // 淡出 -> 换场景 -> 淡入
@@ -860,6 +868,29 @@ class Game {
     this.exposure = Math.max(0, this.exposure - EXPOSURE_MAX * EXP_NEW_MAP);
   }
 
+  // 到点了就一定来一只，不管你有多安静
+  tickForceSpawn(dt) {
+    if (this.phase !== 'night' || this.dialog || this.fading) return;
+    if ((this.forceT -= dt) > 0) return;
+    this.forceT = FORCE_EVERY + (Math.random() - 0.5) * FORCE_JITTER;
+    if (this.monsters.length >= MAX_LURKERS) return;
+    this.spawnLurker();
+  }
+
+  // 剧情用：进某个场景直接丢几只过来。场景定义里写
+  //   ambush: 2        每次进来都刷 2 只
+  //   ambushOnce: true 只有第一次进来才刷
+  //   onEnter(game)    完全自定义（剧情杀写这里）
+  sceneAmbush() {
+    const s = this.cur;
+    if (s.onEnter) s.onEnter(this);
+    if (this.phase !== 'night' || !s.ambush) return;
+    const key = '伏击:' + s.id;
+    if (s.ambushOnce && this.flags.has(key)) return;
+    this.flags.add(key);
+    for (let i = 0; i < s.ambush; i++) this.spawnLurker();
+  }
+
   // 在附近、但不是脸贴脸的地方摸出来一只
   spawnLurker() {
     const s = this.cur, [px0, py0] = this.player.tile();
@@ -914,17 +945,22 @@ class Game {
     // 面前的一块判定区
     const cx = p.x + dx * 14, cy = p.y - 4 + dy * 14;
     const box = [cx - 11, cy - 10, cx + 11, cy + 8];
-    let hitAny = false;
-    for (const m of this.monsters) {
-      if (!overlaps(box, m.box())) continue;
-      hitAny = true;
+    // 一刀最多砍到两只：挨得最近的那只一定中，第二只要再近一些才会被扫到，
+    // 所以被围住时绝大多数时候只能打掉一只 —— 群殴时打不过来，这是故意的
+    const inRange = this.monsters
+      .filter(m => overlaps(box, m.box()))
+      .map(m => ({ m, d: Math.hypot(m.x - cx, m.y - 4 - cy) }))
+      .sort((a, b) => a.d - b.d);
+    const targets = inRange.slice(0, 1).concat(inRange.slice(1, 2).filter(t => t.d <= SWING_SPLASH));
+
+    for (const { m } of targets) {
       // 撬棍只是打得更疼，没有也能打
       m.hurt(dx * 190 + (dx ? 0 : (m.x - p.x) * 2), dy * 190 + (dy ? 0 : (m.y - p.y) * 2), this.bag.includes('crowbar') ? DMG_CROWBAR : DMG_FIST);
       this.burst(m.x, m.y - 10, '#b8e0ff', 10);
       this.shake = 0.12;
       if (m.dead) this.burst(m.x, m.y - 10, '#6a7a9a', 18);
     }
-    if (hitAny) this.monsters = this.monsters.filter(m => !m.dead);
+    if (targets.length) this.monsters = this.monsters.filter(m => !m.dead);
   }
 
   // 怪物走过留下的痕迹：一块深色的印子 + 一滩绿色黏液，黏液会慢慢变浅
@@ -952,6 +988,7 @@ class Game {
     // 走动会暴露自己，站着不动慢慢平息下去
     if (this.spawnCool > 0) this.spawnCool -= dt;
     this.releaseFollowers(dt);
+    this.tickForceSpawn(dt);
     if (!this.dialog && !this.fading) {
       this.addExposure((this.player.moving ? EXP_MOVE : EXP_IDLE) * dt);
     }
