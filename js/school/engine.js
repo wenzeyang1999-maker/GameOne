@@ -9,6 +9,21 @@ const FONT = '12px PixelFont, "PingFang SC", "Microsoft YaHei", sans-serif';
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const PLAYER_MAX_HP = 10;          // 人类的血量。异形是这个的 3~10 倍
 const DMG_FIST = 3, DMG_CROWBAR = 7;   // 一下打掉多少血：空手 / 拿着撬棍
+const SLOW_FLOOR = 0.5;            // 血见底时最慢能慢到原速的多少（界面上不显示，靠手感察觉）
+
+// 暴露值：界面上完全不显示。走动、开门、翻东西都会积累，
+// 攒满了就会有一只异形摸到附近来。站着不动会慢慢回落
+const EXPOSURE_MAX = 100;
+const EXP_MOVE = 7;        // 走动每秒
+const EXP_CALM = -2.5;     // 站着不动每秒回落
+const EXP_ACT = 3;         // 调查、捡东西、挥一下
+const MAX_LURKERS = 3;     // 场上最多同时有几只是暴露刷出来的
+// 刷出异形之后暴露值不会清零，只会掉一截 —— 危险是会一直跟着你的。
+// 真正甩掉它的办法是换地图：每到一张「这轮还没去过的」新图扣一半，
+// 所以隔两张图才会归零
+const EXP_AFTER_SPAWN = 0.7;      // 刷完之后留下的比例
+const EXP_SPAWN_COOL = 15;        // 刷完之后多少秒内不会再刷
+const EXP_NEW_MAP = 0.5;          // 每到一张新图扣掉最大值的多少
 const TRAIL_LIFE = 3, TRAIL_LIFE_BIG = 4.5;   // 异形黏液留多少秒（大滴久一点），再加 0~1.5 秒随机
 
 // ---------------- 画布 ----------------
@@ -216,6 +231,9 @@ class Game {
     this.flags = new Set();                      // 剧情进度（'拿到撬棍' 等），存档带走
     this.monsters = []; this.fx = []; this.trail = []; this.swing = null; this.shake = 0;
     this.hp = PLAYER_MAX_HP; this.hurtFlash = 0;    // 主角的血
+    this.exposure = 0;                              // 暴露值，玩家看不见
+    this.spawnCool = 0;                             // 刚刷过怪的冷却
+    this.fresh = new Set();                         // 这一轮已经躲过的地图，再去就不扣了
     this.phase = 'day';                             // 时段：day 白天（没有怪）/ night 晚自习后（除教室外都锁）
     this.run = 0;                                   // 这是第几局，通关判彩蛋要用
     this.meta = loadMeta();                         // 跨周目进度，清档不动它
@@ -239,7 +257,7 @@ class Game {
         const it = ITEM_DB[id];
         if (it) itemDefs[id] = { name: it.name, desc: it.desc, color: it.color };
       }
-      localStorage.setItem(SAVE_KEY, JSON.stringify({ scene: this.cur.id, x: p.x, y: p.y, dir: p.dir, name: this.playerName, bag: this.bag, itemDefs, taken: [...this.taken], flags: [...this.flags], phase: this.phase, run: this.run, hp: this.hp }));
+      localStorage.setItem(SAVE_KEY, JSON.stringify({ scene: this.cur.id, x: p.x, y: p.y, dir: p.dir, name: this.playerName, bag: this.bag, itemDefs, taken: [...this.taken], flags: [...this.flags], phase: this.phase, run: this.run, hp: this.hp, exposure: Math.round(this.exposure) }));
     } catch (e) { /* 浏览器不让存（无痕模式等）就算了 */ }
   }
   restore() {
@@ -264,6 +282,7 @@ class Game {
     }
     this.phase = d.phase === 'night' ? 'night' : 'day';
     this.hp = Math.max(1, Math.min(PLAYER_MAX_HP, d.hp || PLAYER_MAX_HP));
+    this.exposure = Math.max(0, Math.min(EXPOSURE_MAX - 1, d.exposure || 0));
     this.run = d.run || this.meta.runs || 1;        // 老存档没记局数，就按目前已开过的局算
     // 存档以后场景改过的话，位置可能卡在墙里：挪到最近能站的格子
     const [tx, ty] = p.tile();
@@ -382,7 +401,7 @@ class Game {
     this.save();
   }
   // 淡出 -> 换场景 -> 淡入
-  goTo(id, entry) { if (!this.fading) this.fading = { id, entry, phase: 'out' }; }
+  goTo(id, entry) { if (!this.fading) { this.mapEscape(id); this.fading = { id, entry, phase: 'out' }; } }
 
   // pages: [{name, text, choices?}]
   // choices = [{label, onPick(game)}]，挂在哪一页，就在那一页说完之后弹选项
@@ -534,6 +553,7 @@ class Game {
   }
 
   interactAt(tx, ty) {
+    this.addExposure(EXP_ACT);
     if (this.pickUp(tx, ty)) return;
     const n = this.cur.personAt(tx, ty);
     if (n) {
@@ -681,7 +701,7 @@ class Game {
       this.path = null; this.goal = null; this.marker = null;
       if (my) p.dir = my < 0 ? 'up' : 'down';
       if (mx && !my) p.dir = mx < 0 ? 'left' : 'right';
-      const len = Math.hypot(mx, my), sp = (down('ShiftLeft', 'ShiftRight') ? 100 : 64) * dt;
+      const len = Math.hypot(mx, my), sp = (down('ShiftLeft', 'ShiftRight') ? 100 : 64) * this.speedScale() * dt;
       const ddx = mx / len * sp, ddy = my / len * sp;
       if (ddx && !s.rectBlocked(p.box(p.x + ddx, p.y), p, p.box())) { p.x += ddx; p.moving = true; }
       if (ddy && !s.rectBlocked(p.box(p.x, p.y + ddy), p, p.box())) { p.y += ddy; p.moving = true; }
@@ -725,7 +745,7 @@ class Game {
       return;
     }
     const gx = tx * 16 + 8, gy = ty * 16 + 12;
-    const ddx = gx - p.x, ddy = gy - p.y, step = 64 * dt;
+    const ddx = gx - p.x, ddy = gy - p.y, step = 64 * this.speedScale() * dt;
     let nx = p.x, ny = p.y;
     if (Math.abs(ddx) > 0.5) nx += Math.sign(ddx) * Math.min(step, Math.abs(ddx));
     else if (Math.abs(ddy) > 0.5) ny += Math.sign(ddy) * Math.min(step, Math.abs(ddy));
@@ -760,6 +780,49 @@ class Game {
   // 屏幕上方的小提示，1.5 秒后消失
   toast(t) { this.toastMsg = { t, life: 1.5 }; }
 
+  // ---------------- 暴露值 ----------------
+  // 玩家看不到这个数。攒满了就在附近刷一只异形，然后清零重新攒
+  addExposure(v) {
+    if (this.phase !== 'night') return;            // 白天不刷怪
+    this.exposure = Math.max(0, this.exposure + v);
+    if (this.exposure < EXPOSURE_MAX) return;
+    this.exposure = EXPOSURE_MAX;                  // 封顶，不会无限涨
+    if (this.spawnCool > 0 || this.monsters.length >= MAX_LURKERS) return;
+    // 刷一只，然后暴露值只掉一截（危险还在），要靠换地图才甩得掉
+    this.spawnLurker();
+    this.exposure = EXPOSURE_MAX * EXP_AFTER_SPAWN;
+    this.spawnCool = EXP_SPAWN_COOL;
+    this.fresh.clear();                            // 重新开始数「躲过几张图」
+  }
+
+  // 换地图：到一张这轮还没躲过的图，暴露值掉一大截（两张图就清零）
+  mapEscape(id) {
+    if (this.phase !== 'night' || this.fresh.has(id)) return;
+    this.fresh.add(id);
+    this.exposure = Math.max(0, this.exposure - EXPOSURE_MAX * EXP_NEW_MAP);
+  }
+
+  // 在附近、但不是脸贴脸的地方摸出来一只
+  spawnLurker() {
+    const s = this.cur, [px0, py0] = this.player.tile();
+    const far = [], near = [];
+    for (let y = 0; y < s.H; y++) for (let x = 0; x < s.W; x++) {
+      if (s.isSolid(x, y) || s.exits.has(x + ',' + y)) continue;
+      const d = Math.abs(x - px0) + Math.abs(y - py0);
+      if (d >= 5 && d <= 11) far.push([x, y]);
+      else if (d >= 3) near.push([x, y]);
+    }
+    const pool = far.length ? far : near;
+    if (!pool.length) return;
+    const [mx, my] = pool[(Math.random() * pool.length) | 0];
+    this.monsters.push(new Monster(mx, my));
+    this.shake = 0.2;                               // 远处有什么东西落了地
+  }
+
+  // 走路速度随血量变化：满血原速，血越少越慢，但不会慢到动不了。
+  // 界面上不显示这个数字，玩家只能从手感上感觉到「跑不动了」
+  speedScale() { return SLOW_FLOOR + (1 - SLOW_FLOOR) * (this.hp / PLAYER_MAX_HP); }
+
   // 主角挨打
   hurtPlayer(dmg = 1) {
     if (this.hp <= 0) return;
@@ -787,6 +850,7 @@ class Game {
 
   attack() {
     if (this.swing) return;
+    this.addExposure(EXP_ACT);
     const p = this.player, [dx, dy] = DIRS[p.dir];
     this.swing = { t: 0, dir: p.dir };
     // 面前的一块判定区
@@ -827,6 +891,9 @@ class Game {
     if (this.toastMsg && (this.toastMsg.life -= dt) <= 0) this.toastMsg = null;
     if (this.swing && (this.swing.t += dt) > 0.22) this.swing = null;
     if (this.hurtFlash > 0) this.hurtFlash -= dt;
+    // 走动会暴露自己，站着不动慢慢平息下去
+    if (this.spawnCool > 0) this.spawnCool -= dt;
+    if (!this.dialog && !this.fading) this.addExposure((this.player.moving ? EXP_MOVE : EXP_CALM) * dt);
     this.shake = Math.max(0, this.shake - dt);
     if (this.playerKnock) {                       // 玩家被撞退
       const k = this.playerKnock, p = this.player;

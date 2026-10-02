@@ -22,6 +22,15 @@ const AL = {
 };
 let ALIEN_FRAMES = null;
 
+// 异形的数值：贴合原著 —— 跑得比人快、一口咬掉一大截血、血厚得离谱，
+// 但会被打退，这是没武器的人唯一的反制手段
+const AL_SPEED = 58;        // 平时的移动速度（玩家满血 64，所以走是走不掉的，要跑）
+const AL_RUSH = 92;         // 扑上来：贴近到 48px 以内就加速
+const AL_RUSH_AT = 48;
+const AL_AGGRO = 170;       // 多远开始追
+const AL_BITE = [0.2, 0.25];   // 咬一口掉玩家最大血的 1/5 ~ 1/4
+const AL_BITE_COOL = 1.2;
+
 // 画一条折起来的腿：胯 -> 膝（抬得比背还高）-> 爪。细一点，和身体分得开
 function alienLeg(g, hx, hy, kx, ky, fx, fy) {
   const seg = (x0, y0, x1, y1) => {
@@ -125,7 +134,9 @@ class Monster {
     this.kx = 0; this.ky = 0;                          // 被打退时的速度
     this.dead = false;
   }
-  box(x = this.x, y = this.y) { return [x - 9, y - 4, x + 9, y + 1]; }
+  // 14px 宽：必须窄于一格（16px），否则站在格子正中时左右各探出 1px 到隔壁，
+  // 一格宽的过道就永远挤不过去，寻路算出来的路也走不通
+  box(x = this.x, y = this.y) { return [x - 7, y - 4, x + 7, y + 1]; }
 
   update(dt, game) {
     const p = game.player, s = game.cur;
@@ -145,14 +156,52 @@ class Monster {
 
     // 追玩家
     const dx = p.x - this.x, dy = p.y - this.y, dist = Math.hypot(dx, dy);
-    if (dist > 150) return;
-    const sp = 34 * dt;
+    if (dist > AL_AGGRO) return;
+    // 远远地逼近，到了够得着的距离就扑上来
+    const sp = (dist < AL_RUSH_AT ? AL_RUSH : AL_SPEED) * dt;
     let mx = 0, my = 0;
     if (Math.abs(dx) > 3) mx = Math.sign(dx) * Math.min(sp, Math.abs(dx));
     if (Math.abs(dy) > 3) my = Math.sign(dy) * Math.min(sp, Math.abs(dy));
-    if (mx && !s.rectBlocked(this.box(this.x + mx, this.y), null, this.box())) { this.x += mx; this.moving = true; }
-    if (my && !s.rectBlocked(this.box(this.x, this.y + my), null, this.box())) { this.y += my; this.moving = true; }
-    if (mx) this.dir = mx < 0 ? 'left' : 'right';
+    const step = (ax, ay) => {
+      let ok = false;
+      if (ax && !s.rectBlocked(this.box(this.x + ax, this.y), null, this.box())) { this.x += ax; ok = true; }
+      if (ay && !s.rectBlocked(this.box(this.x, this.y + ay), null, this.box())) { this.y += ay; ok = true; }
+      return ok;
+    };
+
+    this.pathT = (this.pathT || 0) - dt;
+
+    // 中间没东西挡着才直奔。不加这个判断的话，贴着墙的异形会反复
+    // 「脱离墙面 -> 直奔成立 -> 清掉算好的路 -> 又撞上墙」，原地蹦跶
+    if (this.hasLineTo(s, p) && step(mx, my)) {
+      this.detour = null; this.path = null;
+      this.moving = true;
+    } else {
+      // 被挡住了。先按算好的路走；路过期或走不通就重新算
+      if (!this.path || this.pathT <= 0) { this.path = this.repath(s, p); this.pathT = 0.5; }
+      let onPath = false;
+      while (this.path && this.path.length) {
+        const [tx, ty] = this.path[0];
+        const gx2 = tx * 16 + 8, gy2 = ty * 16 + 12;
+        if (Math.hypot(gx2 - this.x, gy2 - this.y) < 4) { this.path.shift(); continue; }
+        const a = Math.atan2(gy2 - this.y, gx2 - this.x);
+        onPath = step(Math.cos(a) * sp, Math.sin(a) * sp);
+        if (onPath) { this.moving = true; this.detour = null; }
+        break;
+      }
+      if (!onPath) {
+        // 压根没有路（玩家在封死的房间里），或者路也走不通：
+        // 往八个方向里最靠近玩家的那个挪，总之不能停下
+        this.path = null;
+        if (!this.detour || (this.detour.t -= dt) <= 0) this.detour = this.pickDetour(s, p, sp);
+        if (this.detour && step(this.detour.dx * sp, this.detour.dy * sp)) this.moving = true;
+        else this.detour = null;
+      }
+    }
+    if (this.moving) {
+      const face = this.detour ? this.detour.dx : mx;
+      if (face) this.dir = face < 0 ? 'left' : 'right';
+    }
     if (this.moving) {
       this.animT += dt;
       this.stepDist = (this.stepDist || 0) + Math.abs(mx) + Math.abs(my);
@@ -161,14 +210,73 @@ class Monster {
 
     // 碰到玩家：把玩家撞退一下
     if (this.hitCool <= 0 && overlaps(this.box(), p.box())) {
-      this.hitCool = 1.2;
+      this.hitCool = AL_BITE_COOL;
       const d = Math.hypot(dx, dy) || 1;
-      game.knockPlayer(-dx / d * 130, -dy / d * 130);
-      game.hurtPlayer(1);
+      game.knockPlayer(-dx / d * 150, -dy / d * 150);
+      // 咬一口：最大血的 1/5 ~ 1/4
+      const f = AL_BITE[0] + Math.random() * (AL_BITE[1] - AL_BITE[0]);
+      game.hurtPlayer(Math.max(1, Math.round(PLAYER_MAX_HP * f)));
     }
   }
 
-  // 挨打：掉血 + 被打退
+  // 到玩家之间是不是一条直路（沿途每隔 8px 试一下身子放不放得下）
+  hasLineTo(s, p) {
+    const dx = p.x - this.x, dy = p.y - this.y, d = Math.hypot(dx, dy);
+    const n = Math.ceil(d / 8);
+    for (let i = 1; i <= n; i++) {
+      const k = i / n;
+      if (s.rectBlocked(this.box(this.x + dx * k, this.y + dy * k), null, this.box())) return false;
+    }
+    return true;
+  }
+
+  // 这一格站得下整个身子吗。碰撞盒窄于一格，所以这等价于「这一格不是墙」，
+  // 但写成拿真盒子去试更稳 —— 以后改了盒子尺寸，寻路会跟着一起对
+  fits(s, tx, ty) { return !s.rectBlocked(this.box(tx * 16 + 8, ty * 16 + 12), null, null); }
+
+  // BFS 找一条到玩家的路。绕长墙、绕桌子要靠它，光靠局部避障会贴着墙滑来滑去
+  repath(s, p) {
+    const W = s.W, H = s.H, key = (x, y) => y * W + x;
+    const sx = Math.floor(this.x / 16), sy = Math.floor((this.y - 2) / 16);
+    const gx = Math.floor(p.x / 16), gy = Math.floor((p.y - 2) / 16);
+    if (sx < 0 || sy < 0 || sx >= W || sy >= H) return null;
+    const prev = new Int32Array(W * H).fill(-1);
+    const q = [key(sx, sy)]; prev[q[0]] = q[0];
+    for (let i = 0; i < q.length; i++) {
+      const cur = q[i];
+      if (cur === key(gx, gy)) {
+        const out = [];
+        for (let k = cur; k !== prev[k]; k = prev[k]) out.push([k % W, (k / W) | 0]);
+        return out.reverse();
+      }
+      const cx = cur % W, cy = (cur / W) | 0;
+      for (const [dx, dy] of [[0, -1], [1, 0], [0, 1], [-1, 0]]) {
+        const nx = cx + dx, ny = cy + dy;
+        if (nx < 0 || ny < 0 || nx >= W || ny >= H) continue;
+        const nk = key(nx, ny);
+        if (prev[nk] !== -1 || !this.fits(s, nx, ny)) continue;
+        prev[nk] = cur; q.push(nk);
+      }
+    }
+    return null;
+  }
+
+  // 卡住时挑一条绕路：八个方向里能走的，取离玩家最近的那个
+  // 挑中之后锁 0.5 秒，免得贴着墙角每帧换方向抖个不停
+  pickDetour(s, p, sp) {
+    const probe = sp * 6;                 // 往前多探几帧的距离，别刚够一帧又卡住
+    let best = null, bestD = Infinity;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const nx = this.x + dx * probe, ny = this.y + dy * probe;
+      if (s.rectBlocked(this.box(nx, ny), null, this.box())) continue;
+      const d = Math.hypot(p.x - nx, p.y - ny);
+      if (d < bestD) { bestD = d; best = { dx, dy, t: 0.5 }; }
+    }
+    return best;
+  }
+
+  // 挨打：掉血 + 被打退。击退是没武器时唯一能做的事
+  // （以后的技能要「定身 / 减速」的话，往 this.stun / this.slow 上加就行）
   hurt(vx, vy, dmg = 1) {
     this.hp -= dmg; this.flash = 0.18; this.stun = 0.45;
     this.kx = vx; this.ky = vy;
